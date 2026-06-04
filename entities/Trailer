@@ -1,0 +1,69 @@
+{
+  "name": "Trailer",
+  "type": "object",
+  "properties": {
+    "trailer_reference": {
+      "type": "string",
+      "description": "Trailer count/reference number"
+    },
+    "trailer_id_label": {
+      "type": "string",
+      "description": "Trailer ID label / name"
+    },
+    "truck_number": {
+      "type": "string",
+      "description": "Truck number"
+    },
+    "driver_name": {
+      "type": "string",
+      "description": "Driver name"
+    },
+    "driver_contact": {
+      "type": "string",
+      "description": "Driver contact number"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "ready_to_load",
+        "loading_in_progress",
+        "loaded_closed",
+        "disputed"
+      ],
+      "default": "draft",
+      "description": "Current trailer status"
+    },
+    "pallet_ids": {
+      "type": "array",
+      "description": "Array of Pallet entity IDs loaded into this trailer",
+      "items": {
+        "type": "string"
+      }
+    },
+    "final_pallet_count": {
+      "type": "number",
+      "description": "Final pallet count on close"
+    },
+    "closed_at": {
+      "type": "string",
+      "description": "ISO timestamp when trailer was closed"
+    },
+    "closed_by": {
+      "type": "string",
+      "description": "User who closed the trailer"
+    },
+    "close_notes": {
+      "type": "string",
+      "description": "Notes or dispute reason on close"
+    }
+  },
+  "required": [
+    "trailer_id_label",
+    "status"
+  ]
+}
