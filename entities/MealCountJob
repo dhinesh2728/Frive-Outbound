@@ -1,0 +1,91 @@
+{
+  "name": "MealCountJob",
+  "type": "object",
+  "properties": {
+    "cook_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Cook date for this job"
+    },
+    "present_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date the counting is being done"
+    },
+    "menu_item_code": {
+      "type": "string",
+      "description": "Menu item code"
+    },
+    "recipe_id": {
+      "type": "string",
+      "description": "Recipe identifier"
+    },
+    "target_quantity": {
+      "type": "number",
+      "description": "Target quantity from prediction"
+    },
+    "selected_bowl_type": {
+      "type": "string",
+      "enum": [
+        "main_bowl",
+        "small_bowl"
+      ],
+      "description": "Bowl type selected for counting"
+    },
+    "crate_value_used": {
+      "type": "number",
+      "description": "Crate value used for this job"
+    },
+    "total_crates": {
+      "type": "number",
+      "description": "Total number of crates counted",
+      "default": 0
+    },
+    "total_stacks": {
+      "type": "number",
+      "description": "Total number of stacks counted",
+      "default": 0
+    },
+    "manual_additions": {
+      "type": "number",
+      "description": "Total manual additions",
+      "default": 0
+    },
+    "manual_subtractions": {
+      "type": "number",
+      "description": "Total manual subtractions",
+      "default": 0
+    },
+    "total_quantity": {
+      "type": "number",
+      "description": "Total calculated quantity",
+      "default": 0
+    },
+    "difference_from_target": {
+      "type": "number",
+      "description": "Difference from target quantity"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "not_started",
+        "in_progress",
+        "complete",
+        "over_target"
+      ],
+      "default": "not_started",
+      "description": "Job completion status"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes"
+    }
+  },
+  "required": [
+    "cook_date",
+    "present_date",
+    "menu_item_code",
+    "recipe_id",
+    "target_quantity"
+  ]
+}
