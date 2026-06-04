@@ -1,0 +1,82 @@
+{
+  "name": "Pallet",
+  "type": "object",
+  "properties": {
+    "pallet_id": {
+      "type": "string",
+      "description": "Unique pallet identifier e.g. PLT-20260601-001"
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional pallet description"
+    },
+    "items": {
+      "type": "array",
+      "description": "Array of {menu_item_code, stack_count, quantity} loaded on this pallet",
+      "items": {
+        "type": "object"
+      }
+    },
+    "total_stacks": {
+      "type": "number",
+      "description": "Total stacks loaded on this pallet",
+      "default": 0
+    },
+    "stacks_capacity": {
+      "type": "number",
+      "description": "Max stacks allowed on this pallet (from config at time of creation)"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "created",
+        "ready_for_pickup",
+        "not_ready",
+        "picked_up",
+        "loaded_to_trailer"
+      ],
+      "default": "created",
+      "description": "Current pallet status"
+    },
+    "ready_for_pickup_at": {
+      "type": "string",
+      "description": "ISO timestamp when marked ready for pickup"
+    },
+    "picked_up_at": {
+      "type": "string",
+      "description": "ISO timestamp when picked up"
+    },
+    "picked_up_by": {
+      "type": "string",
+      "description": "User who picked up the pallet"
+    },
+    "loaded_to_trailer_at": {
+      "type": "string",
+      "description": "ISO timestamp when loaded to trailer"
+    },
+    "loaded_to_trailer_by": {
+      "type": "string",
+      "description": "User who loaded pallet to trailer"
+    },
+    "trailer_id": {
+      "type": "string",
+      "description": "Trailer entity ID this pallet is assigned to"
+    },
+    "cook_dates": {
+      "type": "array",
+      "description": "Cook dates associated with this pallet",
+      "items": {
+        "type": "string"
+      }
+    },
+    "is_flagged": {
+      "type": "boolean",
+      "default": false,
+      "description": "Flagged if not ready for pickup"
+    }
+  },
+  "required": [
+    "pallet_id",
+    "status"
+  ]
+}
