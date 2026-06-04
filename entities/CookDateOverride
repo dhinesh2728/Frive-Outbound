@@ -1,0 +1,19 @@
+{
+  "name": "CookDateOverride",
+  "type": "object",
+  "properties": {
+    "cook_date_param": {
+      "type": "string",
+      "description": "Comma-separated cook date(s) to use as override e.g. '2026-05-31' or '2026-05-31,2026-06-01'"
+    },
+    "is_active": {
+      "type": "boolean",
+      "description": "Whether the override is currently active",
+      "default": true
+    }
+  },
+  "required": [
+    "cook_date_param",
+    "is_active"
+  ]
+}
