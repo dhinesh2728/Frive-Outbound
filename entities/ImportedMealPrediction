@@ -1,0 +1,33 @@
+{
+  "name": "ImportedMealPrediction",
+  "type": "object",
+  "properties": {
+    "cook_date": {
+      "type": "string",
+      "format": "date",
+      "description": "The date meals are to be cooked"
+    },
+    "recipe_id": {
+      "type": "string",
+      "description": "Recipe identifier"
+    },
+    "menu_item_code": {
+      "type": "string",
+      "description": "Meal/menu item identifier"
+    },
+    "target_quantity": {
+      "type": "number",
+      "description": "Target quantity from final_prediction"
+    },
+    "source_file_name": {
+      "type": "string",
+      "description": "Name of the uploaded CSV file"
+    }
+  },
+  "required": [
+    "cook_date",
+    "recipe_id",
+    "menu_item_code",
+    "target_quantity"
+  ]
+}
