@@ -1,0 +1,75 @@
+{
+  "name": "MealCountEntry",
+  "type": "object",
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "description": "Reference to the MealCountJob"
+    },
+    "cook_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "present_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "menu_item_code": {
+      "type": "string"
+    },
+    "recipe_id": {
+      "type": "string"
+    },
+    "bowl_type": {
+      "type": "string",
+      "enum": [
+        "main_bowl",
+        "small_bowl"
+      ]
+    },
+    "crate_value_used": {
+      "type": "number"
+    },
+    "entry_type": {
+      "type": "string",
+      "enum": [
+        "crate",
+        "stack",
+        "manual_add",
+        "manual_subtract"
+      ]
+    },
+    "crate_count": {
+      "type": "number",
+      "default": 0
+    },
+    "stack_count": {
+      "type": "number",
+      "default": 0
+    },
+    "manual_quantity": {
+      "type": "number",
+      "default": 0
+    },
+    "calculated_quantity": {
+      "type": "number",
+      "description": "Quantity added or subtracted in this entry"
+    },
+    "running_total": {
+      "type": "number",
+      "description": "Running total after this entry"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "job_id",
+    "cook_date",
+    "menu_item_code",
+    "recipe_id",
+    "entry_type",
+    "calculated_quantity",
+    "running_total"
+  ]
+}
