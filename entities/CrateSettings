@@ -1,0 +1,43 @@
+{
+  "name": "CrateSettings",
+  "type": "object",
+  "properties": {
+    "main_bowl_crate_value": {
+      "type": "number",
+      "description": "Number of meals in a main bowl crate"
+    },
+    "small_bowl_crate_value": {
+      "type": "number",
+      "description": "Number of meals in a small bowl crate"
+    },
+    "snack_bowl_crate_value": {
+      "type": "number",
+      "description": "Number of meals in a snack bowl crate"
+    },
+    "extra_crate_values": {
+      "type": "object",
+      "description": "Map of custom container type value -> meals per crate (for user-added types)"
+    },
+    "menu_item_mappings": {
+      "type": "object",
+      "description": "Full map of menu_item_code (lowercase) -> container type value"
+    },
+    "container_type_definitions": {
+      "type": "array",
+      "description": "Array of container type definitions: [{value, label, color}]. If present, overrides the factory defaults.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "saved_default_snapshot": {
+      "type": "object",
+      "description": "Admin-saved default snapshot: {menu_item_mappings, container_type_definitions, main_bowl_crate_value, small_bowl_crate_value, snack_bowl_crate_value, extra_crate_values}"
+    },
+    "stacks_per_pallet": {
+      "type": "number",
+      "description": "Number of stacks allowed per pallet. Default: 5",
+      "default": 5
+    }
+  },
+  "required": []
+}
