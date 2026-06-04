@@ -1,0 +1,32 @@
+{
+  "name": "CookDateSettings",
+  "type": "object",
+  "properties": {
+    "cutoff_hour": {
+      "type": "number",
+      "description": "Hour (0-23) at which the cook date cycle ends. Default: 21 (9 PM)",
+      "default": 21
+    },
+    "cutoff_minute": {
+      "type": "number",
+      "description": "Minute at which the cook date cycle ends. Default: 0",
+      "default": 0
+    },
+    "single_date_cutoff_days_before": {
+      "type": "number",
+      "description": "For single cook dates: how many days before the cook date the cutoff falls. Default: 1",
+      "default": 1
+    },
+    "combined_use_first_date": {
+      "type": "boolean",
+      "description": "For combined Sun+Mon dates: use the first date (Sunday) as the cutoff reference. Default: true",
+      "default": true
+    },
+    "visibility_days_before_today": {
+      "type": "number",
+      "description": "How many days before today old cook dates are still shown. Default: 14 (2 weeks)",
+      "default": 14
+    }
+  },
+  "required": []
+}
