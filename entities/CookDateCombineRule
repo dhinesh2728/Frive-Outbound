@@ -1,0 +1,31 @@
+{
+  "name": "CookDateCombineRule",
+  "type": "object",
+  "properties": {
+    "dates": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "date"
+      },
+      "description": "List of cook dates combined into one cycle, e.g. ['2026-05-31', '2026-06-01']"
+    },
+    "label": {
+      "type": "string",
+      "description": "Optional human-readable label for this combine rule"
+    },
+    "original_targets": {
+      "type": "object",
+      "description": "Map of cook_date -> original target quantity before combining, for restore on split. e.g. {'2026-05-31': 500, '2026-06-01': 300}"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether this combine rule is currently active"
+    }
+  },
+  "required": [
+    "dates",
+    "is_active"
+  ]
+}
