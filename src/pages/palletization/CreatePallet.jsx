@@ -153,7 +153,7 @@ export default function CreatePallet() {
     const k = (code || "").toLowerCase();
     const job = activeJobs.find((j) => j.menu_item_code?.toLowerCase() === k);
     const total = job?.total_quantity || 0;
-    const assigned = assignedQtyByCode[k] || 0;
+    const assigned = (assignedQtyByCode[k] || 0) + (currentPalletQtyByCode[k] || 0);
     return Math.max(0, total - assigned);
   }
 
