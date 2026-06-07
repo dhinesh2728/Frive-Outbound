@@ -1,5 +1,7 @@
 import { supabase } from './supabaseClient';
 
+const SESSION_KEY = 'frive_session';
+
 const TABLE_NAMES = {
   CookDateCombineRule: 'cook_date_combine_rules',
   CookDateOverride: 'cook_date_overrides',
@@ -67,17 +69,22 @@ export const base44 = {
     },
   }),
   auth: {
-    async me() {
-      const stored = localStorage.getItem('frive_user');
-      if (stored) return JSON.parse(stored);
-      const defaultUser = { id: 'admin-1', email: 'admin@frive.co.uk', full_name: 'Frive Admin', role: 'admin' };
-      localStorage.setItem('frive_user', JSON.stringify(defaultUser));
-      return defaultUser;
+    me() {
+      try {
+        const raw = localStorage.getItem(SESSION_KEY);
+        if (!raw) return null;
+        const session = JSON.parse(raw);
+        if (new Date(session.expires_at) > new Date()) return session;
+        localStorage.removeItem(SESSION_KEY);
+      } catch { /* */ }
+      return null;
     },
     logout() {
-      localStorage.removeItem('frive_user');
-      window.location.reload();
+      localStorage.removeItem(SESSION_KEY);
+      window.location.href = '/login';
     },
-    redirectToLogin() {},
+    redirectToLogin() {
+      window.location.href = '/login';
+    },
   },
 };

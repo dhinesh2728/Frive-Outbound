@@ -46,7 +46,7 @@ const EMPTY_FORM = {
 };
 
 export default function OutboundAdmin() {
-  const { admin } = useOutletContext() || {};
+  const { admin, hasPermission } = useOutletContext() || {};
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: user } = useCurrentUser();
@@ -107,7 +107,7 @@ export default function OutboundAdmin() {
     },
   });
 
-  if (!admin) return <AccessDenied />;
+  if (!admin && !hasPermission?.('outbound_admin')) return <AccessDenied />;
 
   const f = (key) => (val) => setForm(prev => ({ ...prev, [key]: val }));
   const ef = (key) => (val) => setEditForm(prev => ({ ...prev, [key]: val }));

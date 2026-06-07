@@ -13,7 +13,7 @@ import { useOutletContext } from "react-router-dom";
 import { DEFAULT_SETTINGS } from "@/lib/cookDateLogic";
 
 export default function CookDateSettings() {
-  const { admin } = useOutletContext() || {};
+  const { admin, hasPermission } = useOutletContext() || {};
   const queryClient = useQueryClient();
 
   const { data: settingsList = [], isLoading } = useQuery({
@@ -48,7 +48,7 @@ export default function CookDateSettings() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cook-date-settings"] }),
   });
 
-  if (!admin) return <AccessDenied />;
+  if (!admin && !hasPermission?.('cook_date_rules')) return <AccessDenied />;
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 

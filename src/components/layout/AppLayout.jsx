@@ -1,43 +1,56 @@
 import { Outlet, Link, useLocation, Navigate } from "react-router-dom";
-import { Upload, Settings, BarChart3, ClipboardList, Menu, X, Package, LogOut, CalendarCog, SlidersHorizontal, Layers, Truck } from "lucide-react";
+import {
+  Upload, Settings, BarChart3, ClipboardList, Menu, X, Package,
+  LogOut, CalendarCog, SlidersHorizontal, Layers, Truck, Users, ShieldCheck,
+} from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { useCurrentUser, isAdmin } from "@/lib/useCurrentUser";
-import { base44 } from "@/api/base44Client";
+import { useAuth } from "@/lib/AuthContext";
 
-const adminLinks = [
-  { to: "/admin/import", label: "CSV Import", icon: Upload },
-  { to: "/admin/crate-settings", label: "Crate Settings", icon: Settings },
-  { to: "/admin/set-cook-date", label: "Set Cook Date", icon: CalendarCog },
-  { to: "/admin/cook-date-settings", label: "Cook Date Rules", icon: SlidersHorizontal },
-  { to: "/admin/outbound-admin", label: "Outbound Admin", icon: Truck },
-  { to: "/admin/reports", label: "Reports", icon: BarChart3 },
+// Maps permission key → nav item definition
+const ADMIN_NAV = [
+  { permKey: "csv_import",      to: "/admin/import",            label: "CSV Import",        icon: Upload },
+  { permKey: "crate_settings",  to: "/admin/crate-settings",    label: "Crate Settings",    icon: Settings },
+  { permKey: "set_cook_date",   to: "/admin/set-cook-date",     label: "Set Cook Date",     icon: CalendarCog },
+  { permKey: "cook_date_rules", to: "/admin/cook-date-settings", label: "Cook Date Rules",  icon: SlidersHorizontal },
+  { permKey: "outbound_admin",  to: "/admin/outbound-admin",    label: "Outbound Admin",    icon: Truck },
+  { permKey: "reports",         to: "/admin/reports",           label: "Reports",           icon: BarChart3 },
 ];
 
-const staffLinks = [
-  { to: "/counting", label: "Meal Counting", icon: ClipboardList },
-  { to: "/palletization", label: "Palletization", icon: Layers },
-  { to: "/outbound", label: "Outbound", icon: Truck },
+const WORKING_NAV = [
+  { permKey: "meal_counting",  to: "/counting",      label: "Meal Counting",  icon: ClipboardList },
+  { permKey: "palletization",  to: "/palletization", label: "Palletization",  icon: Layers },
+  { permKey: "outbound",       to: "/outbound",      label: "Outbound",       icon: Truck },
+];
+
+// Redirect order for non-superadmin users hitting "/"
+const FIRST_PAGE_ORDER = [
+  { permKey: "meal_counting",   to: "/counting" },
+  { permKey: "palletization",   to: "/palletization" },
+  { permKey: "outbound",        to: "/outbound" },
+  { permKey: "csv_import",      to: "/admin/import" },
+  { permKey: "crate_settings",  to: "/admin/crate-settings" },
+  { permKey: "set_cook_date",   to: "/admin/set-cook-date" },
+  { permKey: "cook_date_rules", to: "/admin/cook-date-settings" },
+  { permKey: "outbound_admin",  to: "/admin/outbound-admin" },
+  { permKey: "reports",         to: "/admin/reports" },
 ];
 
 export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
-  const { data: user, isLoading } = useCurrentUser();
-  const admin = isAdmin(user);
+  const { user, hasPermission, logout } = useAuth();
 
-  if (isLoading) {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-muted border-t-primary rounded-full animate-spin" />
-      </div>
-    );
+  const isSuperAdmin = user?.is_superadmin === true;
+
+  // Non-superadmin users at "/" get redirected to their first accessible page
+  if (!isSuperAdmin && location.pathname === "/") {
+    const first = FIRST_PAGE_ORDER.find(({ permKey }) => hasPermission(permKey));
+    return <Navigate to={first ? first.to : "/not-authorised"} replace />;
   }
 
-  // Staff users: redirect root "/" to counting
-  if (!admin && location.pathname === "/") {
-    return <Navigate to="/counting" replace />;
-  }
+  const visibleAdminNav  = ADMIN_NAV.filter(({ permKey }) => hasPermission(permKey));
+  const visibleWorkingNav = WORKING_NAV.filter(({ permKey }) => hasPermission(permKey));
 
   const NavLink = ({ to, label, icon: Icon }) => {
     const isActive = location.pathname === to || location.pathname.startsWith(to + "/");
@@ -57,6 +70,9 @@ export default function AppLayout() {
     );
   };
 
+  const hasAnyAdmin  = isSuperAdmin || visibleAdminNav.length > 0;
+  const hasAnyWorking = visibleWorkingNav.length > 0;
+
   return (
     <div className="min-h-screen bg-background font-inter">
       {/* Mobile header */}
@@ -75,7 +91,10 @@ export default function AppLayout() {
 
       {/* Overlay */}
       {sidebarOpen && (
-        <div className="lg:hidden fixed inset-0 bg-black/50 z-40" onClick={() => setSidebarOpen(false)} />
+        <div
+          className="lg:hidden fixed inset-0 bg-black/50 z-40"
+          onClick={() => setSidebarOpen(false)}
+        />
       )}
 
       {/* Sidebar */}
@@ -84,6 +103,7 @@ export default function AppLayout() {
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
+        {/* Brand */}
         <div className="p-5 border-b border-sidebar-border">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-sidebar-primary flex items-center justify-center">
@@ -96,34 +116,53 @@ export default function AppLayout() {
           </div>
         </div>
 
+        {/* Nav */}
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {admin && (
+          {/* Admin Center */}
+          {hasAnyAdmin && (
             <>
               <p className="px-4 py-2 text-xs font-semibold text-sidebar-foreground/40 uppercase tracking-wider">
                 Admin Center
               </p>
-              {adminLinks.map((link) => (
+              {visibleAdminNav.map((link) => (
                 <NavLink key={link.to} {...link} />
               ))}
-              <div className="my-3 border-t border-sidebar-border" />
+              {/* Superadmin-only management links */}
+              {isSuperAdmin && (
+                <>
+                  <NavLink to="/admin/users"       label="User Management"      icon={Users} />
+                  <NavLink to="/admin/permissions"  label="Manage Permissions"   icon={ShieldCheck} />
+                </>
+              )}
+              {hasAnyWorking && <div className="my-3 border-t border-sidebar-border" />}
             </>
           )}
-          <p className="px-4 py-2 text-xs font-semibold text-sidebar-foreground/40 uppercase tracking-wider">
-            Working Section
-          </p>
-          {staffLinks.map((link) => (
-            <NavLink key={link.to} {...link} />
-          ))}
+
+          {/* Working Section */}
+          {hasAnyWorking && (
+            <>
+              <p className="px-4 py-2 text-xs font-semibold text-sidebar-foreground/40 uppercase tracking-wider">
+                Working Section
+              </p>
+              {visibleWorkingNav.map((link) => (
+                <NavLink key={link.to} {...link} />
+              ))}
+            </>
+          )}
         </nav>
 
         {/* User info + logout */}
         <div className="p-3 border-t border-sidebar-border">
           <div className="px-3 py-2 mb-1">
-            <p className="text-xs text-sidebar-foreground/60 truncate">{user?.email}</p>
-            <p className="text-xs font-semibold text-sidebar-foreground/80 capitalize">{user?.role || "user"}</p>
+            <p className="text-xs text-sidebar-foreground/70 truncate font-medium">
+              {user?.username}
+            </p>
+            <p className="text-xs text-sidebar-foreground/50 capitalize">
+              {isSuperAdmin ? "Superadmin" : user?.group_name || "No group"}
+            </p>
           </div>
           <button
-            onClick={() => base44.auth.logout()}
+            onClick={logout}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-all"
           >
             <LogOut className="w-4 h-4" />
@@ -132,10 +171,10 @@ export default function AppLayout() {
         </div>
       </aside>
 
-      {/* Main */}
+      {/* Main content */}
       <main className="lg:ml-64 pt-14 lg:pt-0 min-h-screen">
         <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
-          <Outlet context={{ user, admin }} />
+          <Outlet context={{ user, admin: isSuperAdmin, hasPermission }} />
         </div>
       </main>
     </div>
