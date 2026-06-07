@@ -1,14 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
+import { useAuth } from '@/lib/AuthContext';
 
 export function useCurrentUser() {
-  return useQuery({
-    queryKey: ["current-user"],
-    queryFn: () => base44.auth.me(),
-    staleTime: 5 * 60 * 1000,
-  });
+  const { user, isLoadingAuth } = useAuth();
+  return { data: user, isLoading: isLoadingAuth, error: null };
 }
 
+// Kept for backwards-compat — "admin" now means superadmin
 export function isAdmin(user) {
-  return user?.role === "admin";
+  return user?.is_superadmin === true;
 }

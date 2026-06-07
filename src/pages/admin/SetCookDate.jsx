@@ -28,7 +28,7 @@ import {
 } from "@/lib/cookDateLogic";
 
 export default function SetCookDate() {
-  const { admin } = useOutletContext() || {};
+  const { admin, hasPermission } = useOutletContext() || {};
   const queryClient = useQueryClient();
   const now = new Date();
 
@@ -134,7 +134,7 @@ export default function SetCookDate() {
     },
   });
 
-  if (!admin) return <AccessDenied />;
+  if (!admin && !hasPermission?.('set_cook_date')) return <AccessDenied />;
 
   const handleSet = (param) => setOverrideMutation.mutate(param);
 

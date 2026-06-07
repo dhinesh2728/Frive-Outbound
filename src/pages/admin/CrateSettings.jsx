@@ -35,7 +35,7 @@ function buildCrateValues(settings, containerTypes) {
 }
 
 export default function CrateSettings() {
-  const { admin } = useOutletContext() || {};
+  const { admin, hasPermission } = useOutletContext() || {};
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -86,7 +86,7 @@ export default function CrateSettings() {
     },
   });
 
-  if (!admin) return <AccessDenied />;
+  if (!admin && !hasPermission?.('crate_settings')) return <AccessDenied />;
 
   if (isLoading) {
     return (

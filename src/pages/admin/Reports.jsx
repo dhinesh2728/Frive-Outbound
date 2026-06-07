@@ -459,7 +459,7 @@ function OutboundReport({ pallets, trailers }) {
 
 // ── Main Reports Page ──────────────────────────────────────────────────────────
 export default function Reports() {
-  const { admin } = useOutletContext() || {};
+  const { admin, hasPermission } = useOutletContext() || {};
 
   const { data: predictions = [] } = useQuery({ queryKey: ["predictions"], queryFn: () => base44.entities.ImportedMealPrediction.list("-cook_date", 500) });
   const { data: jobs = [] } = useQuery({ queryKey: ["all-jobs"], queryFn: () => base44.entities.MealCountJob.list("-created_date", 500) });
@@ -477,7 +477,7 @@ export default function Reports() {
   const visibleOptions = filterVisibleOptions(allOptions, settings, new Date());
   const visibleCookDates = visibleOptions.flatMap(o => o.dates);
 
-  if (!admin) return <AccessDenied />;
+  if (!admin && !hasPermission?.('reports')) return <AccessDenied />;
 
   return (
     <div>

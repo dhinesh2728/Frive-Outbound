@@ -75,7 +75,7 @@ function parseCSV(text) {
 }
 
 export default function CsvImport() {
-  const { admin } = useOutletContext() || {};
+  const { admin, hasPermission } = useOutletContext() || {};
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [preview, setPreview] = useState(null);
@@ -124,7 +124,7 @@ export default function CsvImport() {
     },
   });
 
-  if (!admin) return <AccessDenied />;
+  if (!admin && !hasPermission?.('csv_import')) return <AccessDenied />;
 
   const handleFile = (e) => {
     const file = e.target.files?.[0];
