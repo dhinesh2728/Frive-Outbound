@@ -1,14 +1,16 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import * as JsBarcode from "jsbarcode";
+import { getPrinterSettings, applyPrintStyle } from "@/lib/printerSettings";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Plus, Trash2, Layers, AlertTriangle, CheckCircle, Undo2, Redo2, Package } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Layers, AlertTriangle, CheckCircle, Undo2, Redo2, Package, Printer } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -69,6 +71,8 @@ export default function CreatePallet() {
 
   const palletIdRef = useRef(null);
   const palletsLoaded = useRef(false);
+  const barcodePreviewRef = useRef(null);
+  const barcodePrintRef = useRef(null);
 
   const { data: existingPallets = [], isFetched: palletsFetched } = useQuery({
     queryKey: ["pallets"],
@@ -100,6 +104,10 @@ export default function CreatePallet() {
   const [showPartialWarning, setShowPartialWarning] = useState(false);
   const [showPickupDialog, setShowPickupDialog] = useState(false);
   const [savedPalletData, setSavedPalletData] = useState(null);
+
+  // Print-flow state
+  const [hasPrinted, setHasPrinted] = useState(false);
+  const [printTime, setPrintTime] = useState(null);
 
   const { data: jobs = [] } = useQuery({
     queryKey: ["all-jobs"],
@@ -290,6 +298,55 @@ export default function CreatePallet() {
     } else {
       saveMutation.mutate();
     }
+  };
+
+  // Reset print state when the label dialog opens
+  useEffect(() => {
+    if (!showPickupDialog) return;
+    setHasPrinted(false);
+    setPrintTime(new Date());
+  }, [showPickupDialog]);
+
+  // Render barcodes after the dialog animation completes.
+  // Uses setTimeout(150) so Radix's fade-in animation finishes before JsBarcode
+  // measures the SVG element — rAF alone fires too early.
+  useEffect(() => {
+    if (!showPickupDialog || !savedPalletData) return;
+    // CJS module imported as namespace: the function lives on .default
+    const encode = JsBarcode.default;
+    const timer = setTimeout(() => {
+      console.log("[Barcode] preview ref:", barcodePreviewRef.current);
+      console.log("[Barcode] print ref:", barcodePrintRef.current);
+      console.log("[Barcode] pallet_id to encode:", savedPalletData.pallet_id);
+      console.log("[Barcode] encode fn type:", typeof encode);
+      const opts = { format: "CODE128", width: 2, height: 60, displayValue: false, margin: 4, background: "#ffffff", lineColor: "#000000" };
+      try {
+        if (barcodePreviewRef.current) {
+          encode(barcodePreviewRef.current, savedPalletData.pallet_id, opts);
+          console.log("[Barcode] preview rendered OK");
+        }
+        if (barcodePrintRef.current) {
+          encode(barcodePrintRef.current, savedPalletData.pallet_id, opts);
+          console.log("[Barcode] print rendered OK");
+        }
+      } catch (e) {
+        console.error("[Barcode] JsBarcode render error:", e);
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [showPickupDialog, savedPalletData]);
+
+  const labelDescription = savedPalletData
+    ? (savedPalletData.description?.trim() || (savedPalletData.items || []).map((i) => i.menu_item_code).join(", "))
+    : "";
+  const labelQty = savedPalletData
+    ? (savedPalletData.items || []).reduce((sum, i) => sum + (i.quantity || 0), 0)
+    : 0;
+
+  const handlePrint = () => {
+    applyPrintStyle(getPrinterSettings());
+    window.print();
+    setHasPrinted(true);
   };
 
   const handlePickupChoice = async (readyForPickup) => {
@@ -578,21 +635,99 @@ export default function CreatePallet() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Ready for pickup */}
+      {/* Label print + pickup dialog */}
       <AlertDialog open={showPickupDialog}>
-        <AlertDialogContent>
+        <AlertDialogContent className="sm:max-w-sm">
           <AlertDialogHeader>
-            <AlertDialogTitle>Push to Ready for Pickup?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Pallet <strong>{palletId}</strong> has been saved. Push this pallet to Ready for Pickup so it appears in the Outbound module?
-            </AlertDialogDescription>
+            <AlertDialogTitle>Pallet Saved — Print Label</AlertDialogTitle>
           </AlertDialogHeader>
+
+          {/* Label preview */}
+          <div className="rounded-lg border bg-white p-3">
+            <div className="flex justify-center">
+              <div className="border rounded-md p-3 text-center" style={{ width: "175px" }}>
+                <svg ref={barcodePreviewRef} style={{ width: "100%" }} />
+                <p className="text-[8px] font-mono mt-1 break-all tracking-wider">{savedPalletData?.pallet_id}</p>
+                <p className="text-[10px] font-semibold mt-1.5 leading-tight">{labelDescription}</p>
+                <p className="text-[9px] text-muted-foreground mt-0.5">
+                  {labelQty} meals
+                  {printTime ? ` · ${printTime.toLocaleString()}` : ""}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Print action area */}
+          {!hasPrinted ? (
+            <Button
+              type="button"
+              size="lg"
+              className="w-full gap-2 text-base font-semibold"
+              onClick={handlePrint}
+            >
+              <Printer className="w-5 h-5" /> 🖨️ Print Label
+            </Button>
+          ) : (
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm text-emerald-600 font-medium flex items-center gap-1.5">
+                <CheckCircle className="w-4 h-4" /> ✅ Label Printed
+              </span>
+              <Button size="sm" variant="outline" className="gap-1.5 h-8" onClick={handlePrint}>
+                <Printer className="w-3.5 h-3.5" /> Print Again
+              </Button>
+            </div>
+          )}
+
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => handlePickupChoice(false)}>No — Not Ready</AlertDialogCancel>
-            <AlertDialogAction onClick={() => handlePickupChoice(true)}>Yes — Ready for Pickup</AlertDialogAction>
+            <AlertDialogCancel
+              disabled={!hasPrinted}
+              onClick={() => handlePickupChoice(false)}
+            >
+              No — Not Ready
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!hasPrinted}
+              onClick={() => handlePickupChoice(true)}
+            >
+              Yes — Ready for Pickup
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Hidden label — .print-label CSS in index.css makes this visible during window.print() */}
+      {savedPalletData && (
+        <div className="print-label" style={{ display: "none" }}>
+          <div style={{
+            width: "99mm",
+            height: "99mm",
+            padding: "5mm",
+            boxSizing: "border-box",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "white",
+            fontFamily: "monospace",
+          }}>
+            <svg ref={barcodePrintRef} style={{ width: "82mm" }} />
+            <p style={{ fontSize: "9px", marginTop: "2mm", letterSpacing: "1.5px", textAlign: "center", wordBreak: "break-all" }}>
+              {savedPalletData.pallet_id}
+            </p>
+            <p style={{ fontSize: "11px", fontWeight: "bold", marginTop: "3mm", textAlign: "center", lineHeight: "1.3" }}>
+              {labelDescription}
+            </p>
+            <p style={{ fontSize: "10px", marginTop: "2mm", textAlign: "center", color: "#555" }}>
+              {labelQty} meals
+            </p>
+            {printTime && (
+              <p style={{ fontSize: "8px", marginTop: "2mm", textAlign: "center", color: "#888" }}>
+                {printTime.toLocaleString()}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

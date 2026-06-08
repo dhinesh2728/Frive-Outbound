@@ -1,11 +1,14 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import * as JsBarcode from "jsbarcode";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Layers, Package2, CheckCircle, AlertCircle, Trash2, X, CheckCircle2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Plus, Layers, Package2, CheckCircle, AlertCircle, Trash2, X, CheckCircle2, Settings2, ChevronDown, Save, Printer } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -14,6 +17,8 @@ import {
 import PageHeader from "@/components/shared/PageHeader";
 import { getStacksPerPallet } from "@/lib/palletUtils";
 import { useCurrentUser } from "@/lib/useCurrentUser";
+import { useToast } from "@/components/ui/use-toast";
+import { getPrinterSettings, savePrinterSettings, applyPrintStyle } from "@/lib/printerSettings";
 
 const STATUS_COLORS = {
   created: "bg-slate-100 text-slate-700",
@@ -43,10 +48,37 @@ const CARD_FILTERS = {
 
 export default function PalletizationDashboard() {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [readyTarget, setReadyTarget] = useState(null);
   const [activeFilter, setActiveFilter] = useState("all");
   const { data: user } = useCurrentUser();
+
+  // Printer settings panel
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [localSettings, setLocalSettings] = useState(() => getPrinterSettings());
+  const testBarcodeRef = useRef(null);
+  const [testPrintReady, setTestPrintReady] = useState(false);
+
+  // When testPrintReady, render the barcode then fire window.print()
+  useEffect(() => {
+    if (!testPrintReady) return;
+    try {
+      if (testBarcodeRef.current) {
+        JsBarcode.default(testBarcodeRef.current, "000000000000000001", {
+          format: "CODE128", displayValue: false, margin: 4,
+          background: "#ffffff", lineColor: "#000000", width: 2, height: 60,
+        });
+      }
+    } catch (e) {}
+    window.print();
+    setTestPrintReady(false);
+  }, [testPrintReady]);
+
+  const handleTestPrint = () => {
+    applyPrintStyle(localSettings);
+    setTestPrintReady(true);
+  };
 
   const { data: jobs = [] } = useQuery({
     queryKey: ["all-jobs"],
@@ -130,6 +162,78 @@ export default function PalletizationDashboard() {
           </Button>
         </Link>
       </PageHeader>
+
+      {/* Printer Settings */}
+      <div className="mb-5">
+        <button
+          onClick={() => setSettingsOpen((v) => !v)}
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <Settings2 className="w-4 h-4" />
+          Printer Settings
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${settingsOpen ? "rotate-180" : ""}`} />
+        </button>
+
+        {settingsOpen && (
+          <Card className="mt-2">
+            <CardContent className="p-4 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="printer-name">Printer Name</Label>
+                  <Input
+                    id="printer-name"
+                    value={localSettings.printerName}
+                    onChange={(e) => setLocalSettings((s) => ({ ...s, printerName: e.target.value }))}
+                    placeholder="e.g. TSC DA220"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="label-width">Label Width</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      id="label-width"
+                      type="number"
+                      min="10"
+                      max="300"
+                      value={localSettings.labelWidth}
+                      onChange={(e) => setLocalSettings((s) => ({ ...s, labelWidth: e.target.value }))}
+                      className="w-20"
+                    />
+                    <span className="text-sm text-muted-foreground">mm</span>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="label-height">Label Height</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      id="label-height"
+                      type="number"
+                      min="10"
+                      max="300"
+                      value={localSettings.labelHeight}
+                      onChange={(e) => setLocalSettings((s) => ({ ...s, labelHeight: e.target.value }))}
+                      className="w-20"
+                    />
+                    <span className="text-sm text-muted-foreground">mm</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={handleTestPrint}>
+                  <Printer className="w-3.5 h-3.5" /> Test Print
+                </Button>
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => { savePrinterSettings(localSettings); toast({ title: "Printer settings saved" }); }}
+                >
+                  <Save className="w-3.5 h-3.5" /> Save
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
       {/* Stats Row 1 */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
@@ -249,6 +353,38 @@ export default function PalletizationDashboard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Hidden test print label — only visible during window.print() */}
+      {testPrintReady && (
+        <div className="print-label" style={{ display: "none" }}>
+          <div style={{
+            width: `${localSettings.labelWidth}mm`,
+            height: `${localSettings.labelHeight}mm`,
+            padding: "5mm",
+            boxSizing: "border-box",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "white",
+            fontFamily: "monospace",
+          }}>
+            <svg ref={testBarcodeRef} style={{ width: "100%", maxWidth: "82mm" }} />
+            <p style={{ fontSize: "9px", marginTop: "2mm", letterSpacing: "1.5px", textAlign: "center" }}>
+              000000000000000001
+            </p>
+            <p style={{ fontSize: "11px", fontWeight: "bold", marginTop: "3mm", textAlign: "center" }}>
+              TEST LABEL — {localSettings.labelWidth}×{localSettings.labelHeight}mm
+            </p>
+            <p style={{ fontSize: "10px", marginTop: "2mm", textAlign: "center", color: "#555" }}>
+              Printer: {localSettings.printerName}
+            </p>
+            <p style={{ fontSize: "8px", marginTop: "2mm", textAlign: "center", color: "#888" }}>
+              {new Date().toLocaleString()}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

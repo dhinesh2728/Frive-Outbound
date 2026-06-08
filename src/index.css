@@ -89,3 +89,18 @@
     @apply bg-background text-foreground;
   }
 }
+
+@media print {
+  @page { size: 99mm 99mm; margin: 0; }
+  body * { visibility: hidden; }
+  .print-label {
+    display: block !important;
+    visibility: visible !important;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 99mm;
+    height: 99mm;
+  }
+  .print-label * { visibility: visible !important; }
+}
