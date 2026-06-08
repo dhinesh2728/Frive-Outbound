@@ -319,14 +319,15 @@ export default function CreatePallet() {
       console.log("[Barcode] print ref:", barcodePrintRef.current);
       console.log("[Barcode] pallet_id to encode:", savedPalletData.pallet_id);
       console.log("[Barcode] encode fn type:", typeof encode);
-      const opts = { format: "CODE128", width: 2, height: 60, displayValue: false, margin: 4, background: "#ffffff", lineColor: "#000000" };
+      const previewOpts = { format: "CODE128", width: 2, height: 60, displayValue: false, margin: 4, background: "#ffffff", lineColor: "#000000" };
+      const printOpts  = { format: "CODE128", width: 3, height: 80, displayValue: false, margin: 4, background: "#ffffff", lineColor: "#000000" };
       try {
         if (barcodePreviewRef.current) {
-          encode(barcodePreviewRef.current, savedPalletData.pallet_id, opts);
+          encode(barcodePreviewRef.current, savedPalletData.pallet_id, previewOpts);
           console.log("[Barcode] preview rendered OK");
         }
         if (barcodePrintRef.current) {
-          encode(barcodePrintRef.current, savedPalletData.pallet_id, opts);
+          encode(barcodePrintRef.current, savedPalletData.pallet_id, printOpts);
           console.log("[Barcode] print rendered OK");
         }
       } catch (e) {
@@ -712,32 +713,36 @@ export default function CreatePallet() {
           <div style={{
             width: "99mm",
             height: "99mm",
-            padding: "5mm",
+            padding: "4mm",
             boxSizing: "border-box",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            justifyContent: "flex-start",
+            justifyContent: "space-between",
             background: "white",
           }}>
             {/* 1. Meal description */}
-            <p style={{ fontSize: "20px", fontWeight: "bold", textAlign: "center", lineHeight: "1.2", marginBottom: "3mm" }}>
+            <p style={{ fontSize: "22px", fontWeight: "bold", textAlign: "center", lineHeight: "1.2", margin: 0 }}>
               {labelDescription}
             </p>
             {/* 2. Quantity + date */}
-            <p style={{ fontSize: "14px", fontWeight: 600, textAlign: "center", marginBottom: "1mm" }}>
-              {labelQty} meals
-            </p>
-            {printTime && (
-              <p style={{ fontSize: "12px", color: "#555", textAlign: "center", marginBottom: "3mm" }}>
-                {printTime.toLocaleString()}
+            <div style={{ textAlign: "center" }}>
+              <p style={{ fontSize: "14px", fontWeight: 600, margin: 0 }}>
+                {labelQty} meals
               </p>
-            )}
+              {printTime && (
+                <p style={{ fontSize: "12px", color: "#555", margin: "1mm 0 0" }}>
+                  {printTime.toLocaleString()}
+                </p>
+              )}
+            </div>
             {/* 3. Barcode + pallet ID */}
-            <svg ref={barcodePrintRef} style={{ width: "82mm", display: "block" }} />
-            <p style={{ fontSize: "11px", fontFamily: "monospace", textAlign: "center", marginTop: "2mm", letterSpacing: "1.5px", wordBreak: "break-all" }}>
-              {savedPalletData.pallet_id}
-            </p>
+            <div style={{ textAlign: "center", width: "100%" }}>
+              <svg ref={barcodePrintRef} style={{ width: "89mm", display: "block", margin: "0 auto" }} />
+              <p style={{ fontSize: "13px", fontFamily: "monospace", textAlign: "center", margin: "1mm 0 0", letterSpacing: "1.5px", wordBreak: "break-all" }}>
+                {savedPalletData.pallet_id}
+              </p>
+            </div>
           </div>
         </div>
       )}
