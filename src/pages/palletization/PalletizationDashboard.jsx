@@ -60,6 +60,12 @@ export default function PalletizationDashboard() {
   const testBarcodeRef = useRef(null);
   const [testPrintReady, setTestPrintReady] = useState(false);
 
+  // Reprint modal
+  const [reprintTarget, setReprintTarget] = useState(null);
+  const [reprintHasPrinted, setReprintHasPrinted] = useState(false);
+  const reprintBarcodeRef = useRef(null);
+  const reprintBarcodePrintRef = useRef(null);
+
   // When testPrintReady, render the barcode then fire window.print()
   useEffect(() => {
     if (!testPrintReady) return;
@@ -78,6 +84,27 @@ export default function PalletizationDashboard() {
   const handleTestPrint = () => {
     applyPrintStyle(localSettings);
     setTestPrintReady(true);
+  };
+
+  // Render barcodes into both the modal preview and the hidden print div when
+  // the reprint modal opens. 150ms delay lets the Radix dialog animate in first.
+  useEffect(() => {
+    if (!reprintTarget) return;
+    setReprintHasPrinted(false);
+    const opts = { format: "CODE128", width: 2, height: 60, displayValue: false, margin: 4, background: "#ffffff", lineColor: "#000000" };
+    const timer = setTimeout(() => {
+      try {
+        if (reprintBarcodeRef.current) JsBarcode.default(reprintBarcodeRef.current, reprintTarget.pallet_id, opts);
+        if (reprintBarcodePrintRef.current) JsBarcode.default(reprintBarcodePrintRef.current, reprintTarget.pallet_id, opts);
+      } catch (e) {}
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [reprintTarget]);
+
+  const handleReprintPrint = () => {
+    applyPrintStyle(getPrinterSettings());
+    window.print();
+    setReprintHasPrinted(true);
   };
 
   const { data: jobs = [] } = useQuery({
@@ -303,6 +330,7 @@ export default function PalletizationDashboard() {
                 stacksPerPallet={stacksPerPallet}
                 onDelete={() => setDeleteTarget(pallet)}
                 onMarkReady={() => setReadyTarget(pallet)}
+                onReprint={() => setReprintTarget(pallet)}
               />
             ))}
           </div>
@@ -353,6 +381,80 @@ export default function PalletizationDashboard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Reprint modal */}
+      <AlertDialog open={!!reprintTarget} onOpenChange={(v) => !v && setReprintTarget(null)}>
+        <AlertDialogContent className="sm:max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reprint Label</AlertDialogTitle>
+          </AlertDialogHeader>
+
+          {reprintTarget && (() => {
+            const desc = reprintTarget.description?.trim() || (reprintTarget.items || []).map(i => i.menu_item_code).join(", ");
+            const qty = (reprintTarget.items || []).reduce((sum, i) => sum + (i.quantity || 0), 0);
+            const date = new Date(reprintTarget.created_date);
+            return (
+              <>
+                <div className="rounded-lg border bg-white p-3">
+                  <div className="flex justify-center">
+                    <div className="border rounded-md p-3 text-center" style={{ width: "175px" }}>
+                      <p style={{ fontSize: "20px", fontWeight: "bold", lineHeight: "1.2", marginBottom: "4px" }}>{desc}</p>
+                      <p style={{ fontSize: "14px", fontWeight: 600, marginBottom: "2px" }}>{qty} meals</p>
+                      <p style={{ fontSize: "12px", color: "#555", marginBottom: "6px" }}>{date.toLocaleString()}</p>
+                      <svg ref={reprintBarcodeRef} style={{ width: "100%", display: "block" }} />
+                      <p style={{ fontSize: "11px", fontFamily: "monospace", marginTop: "3px", wordBreak: "break-all", letterSpacing: "1px" }}>
+                        {reprintTarget.pallet_id}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {!reprintHasPrinted ? (
+                  <Button type="button" size="lg" className="w-full gap-2 text-base font-semibold" onClick={handleReprintPrint}>
+                    <Printer className="w-5 h-5" /> 🖨️ Print Label
+                  </Button>
+                ) : (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm text-emerald-600 font-medium flex items-center gap-1.5">
+                      <CheckCircle className="w-4 h-4" /> ✅ Label Printed
+                    </span>
+                    <Button size="sm" variant="outline" className="gap-1.5 h-8" onClick={handleReprintPrint}>
+                      <Printer className="w-3.5 h-3.5" /> Print Again
+                    </Button>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setReprintTarget(null)}>Close</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Hidden reprint label — only visible during window.print() */}
+      {reprintTarget && (() => {
+        const desc = reprintTarget.description?.trim() || (reprintTarget.items || []).map(i => i.menu_item_code).join(", ");
+        const qty = (reprintTarget.items || []).reduce((sum, i) => sum + (i.quantity || 0), 0);
+        const date = new Date(reprintTarget.created_date);
+        return (
+          <div className="print-label" style={{ display: "none" }}>
+            <div style={{
+              width: "99mm", height: "99mm", padding: "5mm", boxSizing: "border-box",
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", background: "white",
+            }}>
+              <p style={{ fontSize: "20px", fontWeight: "bold", textAlign: "center", lineHeight: "1.2", marginBottom: "3mm" }}>{desc}</p>
+              <p style={{ fontSize: "14px", fontWeight: 600, textAlign: "center", marginBottom: "1mm" }}>{qty} meals</p>
+              <p style={{ fontSize: "12px", color: "#555", textAlign: "center", marginBottom: "3mm" }}>{date.toLocaleString()}</p>
+              <svg ref={reprintBarcodePrintRef} style={{ width: "82mm", display: "block" }} />
+              <p style={{ fontSize: "11px", fontFamily: "monospace", textAlign: "center", marginTop: "2mm", letterSpacing: "1.5px", wordBreak: "break-all" }}>
+                {reprintTarget.pallet_id}
+              </p>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Hidden test print label — only visible during window.print() */}
       {testPrintReady && (
@@ -410,7 +512,7 @@ function StatCard({ label, value, icon: Icon, color, filterKey, activeFilter, on
   );
 }
 
-function PalletLogCard({ pallet, stacksPerPallet, onDelete, onMarkReady }) {
+function PalletLogCard({ pallet, stacksPerPallet, onDelete, onMarkReady, onReprint }) {
   const isFull = (pallet.total_stacks || 0) >= stacksPerPallet;
   const canMarkReady = pallet.status === "not_ready" || (pallet.is_flagged && pallet.status !== "ready_for_pickup" && pallet.status !== "picked_up" && pallet.status !== "loaded_to_trailer");
 
@@ -467,6 +569,15 @@ function PalletLogCard({ pallet, stacksPerPallet, onDelete, onMarkReady }) {
                 <CheckCircle2 className="w-3.5 h-3.5 mr-1" />Mark Ready
               </Button>
             )}
+            <Button
+              size="icon"
+              variant="ghost"
+              className="text-muted-foreground hover:text-foreground h-8 w-8"
+              title="Reprint label"
+              onClick={onReprint}
+            >
+              <Printer className="w-4 h-4" />
+            </Button>
             {pallet.status !== "picked_up" && pallet.status !== "loaded_to_trailer" && (
               <Button
                 size="icon"

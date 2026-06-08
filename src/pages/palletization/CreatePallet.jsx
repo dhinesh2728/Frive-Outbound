@@ -201,6 +201,10 @@ export default function CreatePallet() {
     setAddError("");
     const code = newCode.trim();
     if (!code) { setAddError("Please select or enter a menu item code."); return; }
+    if (items.length >= 1) {
+      setAddError("Only one menu item allowed per pallet. Remove the existing item first to change it.");
+      return;
+    }
 
     const availQty = getAvailableQty(code);
     const breakdown = getBreakdown(code, availQty, crateSettings);
@@ -443,7 +447,18 @@ export default function CreatePallet() {
       )}
 
       {/* Add item form */}
-      {remainingCapacity > 0 || (selectedBreakdown?.isUnitBased) ? (
+      {items.length >= 1 ? (
+        <Card className="mb-5">
+          <CardContent className="p-4 flex items-center gap-3">
+            <Package className="w-4 h-4 text-muted-foreground shrink-0" />
+            <p className="text-sm text-muted-foreground">
+              This pallet contains{" "}
+              <strong className="text-foreground">{items[0].menu_item_code}</strong>.{" "}
+              Remove it to change the item.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (remainingCapacity > 0 || selectedBreakdown?.isUnitBased) ? (
         <Card className="mb-5">
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
