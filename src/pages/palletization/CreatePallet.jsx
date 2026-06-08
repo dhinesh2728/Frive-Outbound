@@ -646,12 +646,23 @@ export default function CreatePallet() {
           <div className="rounded-lg border bg-white p-3">
             <div className="flex justify-center">
               <div className="border rounded-md p-3 text-center" style={{ width: "175px" }}>
-                <svg ref={barcodePreviewRef} style={{ width: "100%" }} />
-                <p className="text-[8px] font-mono mt-1 break-all tracking-wider">{savedPalletData?.pallet_id}</p>
-                <p className="text-[10px] font-semibold mt-1.5 leading-tight">{labelDescription}</p>
-                <p className="text-[9px] text-muted-foreground mt-0.5">
+                {/* 1. Description */}
+                <p style={{ fontSize: "20px", fontWeight: "bold", lineHeight: "1.2", marginBottom: "4px" }}>
+                  {labelDescription}
+                </p>
+                {/* 2. Qty + date */}
+                <p style={{ fontSize: "14px", fontWeight: 600, marginBottom: "2px" }}>
                   {labelQty} meals
-                  {printTime ? ` · ${printTime.toLocaleString()}` : ""}
+                </p>
+                {printTime && (
+                  <p style={{ fontSize: "12px", color: "#555", marginBottom: "6px" }}>
+                    {printTime.toLocaleString()}
+                  </p>
+                )}
+                {/* 3. Barcode + pallet ID */}
+                <svg ref={barcodePreviewRef} style={{ width: "100%", display: "block" }} />
+                <p style={{ fontSize: "11px", fontFamily: "monospace", marginTop: "3px", wordBreak: "break-all", letterSpacing: "1px" }}>
+                  {savedPalletData?.pallet_id}
                 </p>
               </div>
             </div>
@@ -706,25 +717,27 @@ export default function CreatePallet() {
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
+            justifyContent: "flex-start",
             background: "white",
-            fontFamily: "monospace",
           }}>
-            <svg ref={barcodePrintRef} style={{ width: "82mm" }} />
-            <p style={{ fontSize: "9px", marginTop: "2mm", letterSpacing: "1.5px", textAlign: "center", wordBreak: "break-all" }}>
-              {savedPalletData.pallet_id}
-            </p>
-            <p style={{ fontSize: "11px", fontWeight: "bold", marginTop: "3mm", textAlign: "center", lineHeight: "1.3" }}>
+            {/* 1. Meal description */}
+            <p style={{ fontSize: "20px", fontWeight: "bold", textAlign: "center", lineHeight: "1.2", marginBottom: "3mm" }}>
               {labelDescription}
             </p>
-            <p style={{ fontSize: "10px", marginTop: "2mm", textAlign: "center", color: "#555" }}>
+            {/* 2. Quantity + date */}
+            <p style={{ fontSize: "14px", fontWeight: 600, textAlign: "center", marginBottom: "1mm" }}>
               {labelQty} meals
             </p>
             {printTime && (
-              <p style={{ fontSize: "8px", marginTop: "2mm", textAlign: "center", color: "#888" }}>
+              <p style={{ fontSize: "12px", color: "#555", textAlign: "center", marginBottom: "3mm" }}>
                 {printTime.toLocaleString()}
               </p>
             )}
+            {/* 3. Barcode + pallet ID */}
+            <svg ref={barcodePrintRef} style={{ width: "82mm", display: "block" }} />
+            <p style={{ fontSize: "11px", fontFamily: "monospace", textAlign: "center", marginTop: "2mm", letterSpacing: "1.5px", wordBreak: "break-all" }}>
+              {savedPalletData.pallet_id}
+            </p>
           </div>
         </div>
       )}
