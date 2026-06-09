@@ -19,6 +19,7 @@ import { getStacksPerPallet } from "@/lib/palletUtils";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 import { useToast } from "@/components/ui/use-toast";
 import { getPrinterSettings, savePrinterSettings, applyPrintStyle } from "@/lib/printerSettings";
+import { useLpItemIdMap } from "@/lib/useLpItemIdMap";
 
 const STATUS_COLORS = {
   created: "bg-slate-100 text-slate-700",
@@ -111,6 +112,11 @@ export default function PalletizationDashboard() {
     queryKey: ["all-jobs"],
     queryFn: () => base44.entities.MealCountJob.list("-created_date", 500),
   });
+
+  const lpMap = useLpItemIdMap();
+  const reprintLpId = reprintTarget
+    ? lpMap[((reprintTarget.items || [])[0]?.menu_item_code || "").toLowerCase()] || null
+    : null;
 
   const { data: pallets = [], isLoading } = useQuery({
     queryKey: ["pallets"],
@@ -399,6 +405,9 @@ export default function PalletizationDashboard() {
                   <div className="flex justify-center">
                     <div className="border rounded-md p-3 text-center" style={{ width: "175px" }}>
                       <p style={{ fontSize: "20px", fontWeight: "bold", lineHeight: "1.2", marginBottom: "4px" }}>{desc}</p>
+                      {reprintLpId && (
+                        <p style={{ fontSize: "13px", fontWeight: 600, color: "#444", marginBottom: "3px" }}>{reprintLpId}</p>
+                      )}
                       <p style={{ fontSize: "14px", fontWeight: 600, marginBottom: "2px" }}>{qty} meals</p>
                       <p style={{ fontSize: "12px", color: "#555", marginBottom: "6px" }}>{date.toLocaleString()}</p>
                       <svg ref={reprintBarcodeRef} style={{ width: "100%", display: "block" }} />
@@ -445,6 +454,9 @@ export default function PalletizationDashboard() {
               display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", background: "white",
             }}>
               <p style={{ fontSize: "20px", fontWeight: "bold", textAlign: "center", lineHeight: "1.2", marginBottom: "3mm" }}>{desc}</p>
+              {reprintLpId && (
+                <p style={{ fontSize: "13px", fontWeight: 600, color: "#444", textAlign: "center", marginBottom: "2mm" }}>{reprintLpId}</p>
+              )}
               <p style={{ fontSize: "14px", fontWeight: 600, textAlign: "center", marginBottom: "1mm" }}>{qty} meals</p>
               <p style={{ fontSize: "12px", color: "#555", textAlign: "center", marginBottom: "3mm" }}>{date.toLocaleString()}</p>
               <svg ref={reprintBarcodePrintRef} style={{ width: "82mm", display: "block" }} />
