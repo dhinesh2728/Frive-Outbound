@@ -33,6 +33,22 @@ function exportCSV(rows, filename) {
   URL.revokeObjectURL(url);
 }
 
+function formatDateDMY(isoStr) {
+  if (!isoStr) return "";
+  const part = String(isoStr).substring(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(part)) return isoStr;
+  const [yyyy, mm, dd] = part.split("-");
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+function addDaysDMY(isoDateStr, days) {
+  const part = String(isoDateStr || "").substring(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(part)) return "";
+  const [y, m, d] = part.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return `${String(dt.getDate()).padStart(2, "0")}/${String(dt.getMonth() + 1).padStart(2, "0")}/${dt.getFullYear()}`;
+}
+
 function FilterChip({ label, onRemove }) {
   return (
     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
@@ -457,6 +473,165 @@ function OutboundReport({ pallets, trailers }) {
   );
 }
 
+// ── ASN Report Tab ─────────────────────────────────────────────────────────────
+
+function ASNReport({ trailers, pallets, jobs, predictions }) {
+  const [expandedId, setExpandedId] = useState(null);
+
+  const closedTrailers = useMemo(
+    () => [...trailers.filter(t => t.status === "loaded_closed")]
+      .sort((a, b) => (b.closed_at || "").localeCompare(a.closed_at || "")),
+    [trailers]
+  );
+
+  const lpMap = useMemo(() => {
+    const map = {};
+    for (const p of predictions) {
+      if (p.menu_item_code && p.lp_item_id) map[p.menu_item_code.toLowerCase()] = p.lp_item_id;
+    }
+    return map;
+  }, [predictions]);
+
+  const cookDateMap = useMemo(() => {
+    const map = {};
+    for (const j of jobs) {
+      const k = (j.menu_item_code || "").toLowerCase();
+      if (!map[k] || j.cook_date > map[k]) map[k] = j.cook_date;
+    }
+    return map;
+  }, [jobs]);
+
+  const palletsByTrailer = useMemo(() => {
+    const map = {};
+    for (const p of pallets) {
+      if (!map[p.trailer_id]) map[p.trailer_id] = [];
+      map[p.trailer_id].push(p);
+    }
+    return map;
+  }, [pallets]);
+
+  function buildRows(trailerId) {
+    return (palletsByTrailer[trailerId] || []).flatMap(pallet => {
+      const items = pallet.items || [];
+      if (!items.length) return [];
+      const item = items[0];
+      const code = (item.menu_item_code || "").toLowerCase();
+      const sku = lpMap[code] || item.menu_item_code || "";
+      const cookDate = (pallet.cook_dates || [])[0] || cookDateMap[code] || "";
+      const prodIso = (pallet.created_date || "").substring(0, 10);
+      const totalQty = items.reduce((s, i) => s + (i.quantity || 0), 0);
+      return [{
+        CONTRACT: "F063",
+        SUPPLIER: "F063",
+        SKU: sku,
+        "QTY (UNITS)": totalQty,
+        DELIVERYDATE: formatDateDMY(cookDate),
+        REFERENCE: "FriveASN",
+        PalletIdentifier: pallet.pallet_id,
+        Expirydate: prodIso ? addDaysDMY(prodIso, 7) : "",
+        BatchId: "",
+        ProductionDate: formatDateDMY(prodIso),
+      }];
+    });
+  }
+
+  function handleGenerate(trailer) {
+    const rows = buildRows(trailer.id);
+    if (!rows.length) return;
+    const firstPallet = (palletsByTrailer[trailer.id] || [])[0];
+    const cookDateRaw =
+      (firstPallet?.cook_dates || [])[0] ||
+      cookDateMap[(firstPallet?.items || [])[0]?.menu_item_code?.toLowerCase() || ""] ||
+      trailer.closed_at?.substring(0, 10) ||
+      "unknown";
+    const trailerId = (trailer.trailer_id_label || "").replace(/\s+/g, "_");
+    exportCSV(rows, `ASN_Frive_${cookDateRaw}_${trailerId}.csv`);
+  }
+
+  return (
+    <div>
+      <div className="mb-4">
+        <h3 className="font-semibold text-foreground">ASN Report</h3>
+        <p className="text-sm text-muted-foreground mt-1">Generate ASN CSV files for closed trailers</p>
+      </div>
+      {closedTrailers.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            No closed trailers. Close a trailer in Outbound Admin to generate an ASN.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {closedTrailers.map(trailer => {
+            const trailerPallets = palletsByTrailer[trailer.id] || [];
+            const isExpanded = expandedId === trailer.id;
+            const rows = buildRows(trailer.id);
+            const previewRows = rows.slice(0, 3);
+            return (
+              <Card key={trailer.id}>
+                <CardContent className="p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-foreground">{trailer.trailer_id_label}</p>
+                      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mt-0.5">
+                        <span><Layers className="w-3 h-3 inline mr-0.5" />{trailerPallets.length} pallet{trailerPallets.length !== 1 ? "s" : ""}</span>
+                        {trailer.closed_at && <span>Closed {new Date(trailer.closed_at).toLocaleDateString()}</span>}
+                        {trailer.truck_number && <span>Truck: {trailer.truck_number}</span>}
+                        {trailer.driver_name && <span>Driver: {trailer.driver_name}</span>}
+                      </div>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      {rows.length > 0 && (
+                        <Button variant="outline" size="sm" onClick={() => setExpandedId(isExpanded ? null : trailer.id)}>
+                          <FileText className="w-4 h-4 mr-1" />{isExpanded ? "Hide" : "Preview"}
+                        </Button>
+                      )}
+                      <Button size="sm" onClick={() => handleGenerate(trailer)} disabled={rows.length === 0}>
+                        <Download className="w-4 h-4 mr-1" />Generate ASN
+                      </Button>
+                    </div>
+                  </div>
+                  {isExpanded && previewRows.length > 0 && (
+                    <div className="mt-4 overflow-x-auto">
+                      <p className="text-xs text-muted-foreground mb-2">
+                        Preview — first {previewRows.length} of {rows.length} row{rows.length !== 1 ? "s" : ""}
+                      </p>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>SKU</TableHead>
+                            <TableHead className="text-right">Qty</TableHead>
+                            <TableHead>Delivery Date</TableHead>
+                            <TableHead>Pallet ID</TableHead>
+                            <TableHead>Production Date</TableHead>
+                            <TableHead>Expiry Date</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {previewRows.map((row, i) => (
+                            <TableRow key={i}>
+                              <TableCell className="font-mono text-xs">{row.SKU}</TableCell>
+                              <TableCell className="text-right">{row["QTY (UNITS)"]}</TableCell>
+                              <TableCell className="text-xs">{row.DELIVERYDATE}</TableCell>
+                              <TableCell className="font-mono text-xs">{row.PalletIdentifier}</TableCell>
+                              <TableCell className="text-xs">{row.ProductionDate}</TableCell>
+                              <TableCell className="text-xs">{row.Expirydate}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Reports Page ──────────────────────────────────────────────────────────
 export default function Reports() {
   const { admin, hasPermission } = useOutletContext() || {};
@@ -488,6 +663,7 @@ export default function Reports() {
           <TabsTrigger value="palletization" className="gap-1.5"><Package2 className="w-4 h-4" />Palletization</TabsTrigger>
           <TabsTrigger value="outbound" className="gap-1.5"><Truck className="w-4 h-4" />Outbound</TabsTrigger>
           <TabsTrigger value="trailer-logs" className="gap-1.5"><ClipboardList className="w-4 h-4" />Trailer Logs</TabsTrigger>
+          <TabsTrigger value="asn-report" className="gap-1.5"><Download className="w-4 h-4" />ASN Report</TabsTrigger>
         </TabsList>
         <TabsContent value="meal-counting">
           <MealCountingReport jobs={jobs} entries={entries} predictions={predictions} crateSettings={crateSettings} visibleCookDates={visibleCookDates} />
@@ -500,6 +676,9 @@ export default function Reports() {
         </TabsContent>
         <TabsContent value="trailer-logs">
           <TrailerLogsReport trailers={trailers} pallets={pallets} />
+        </TabsContent>
+        <TabsContent value="asn-report">
+          <ASNReport trailers={trailers} pallets={pallets} jobs={jobs} predictions={predictions} />
         </TabsContent>
       </Tabs>
     </div>

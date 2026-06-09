@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { base44 } from "@/api/base44Client";
+import { supabase } from "@/api/supabaseClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,53 +23,50 @@ import PageHeader from "@/components/shared/PageHeader";
 import AccessDenied from "@/components/shared/AccessDenied";
 import { useOutletContext } from "react-router-dom";
 
-// Accept both "final_prediction" and "finalprediction" (covers FinalPrediction)
-function getPredictionValue(row) {
-  return row["final_prediction"] ?? row["finalprediction"] ?? null;
+function cleanVal(v) {
+  return v.trim().replace(/^"|"$/g, "").trim();
+}
+
+function parseDate(raw) {
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
+    const [dd, mm, yyyy] = raw.split("/");
+    return new Date(`${yyyy}-${mm}-${dd}`);
+  }
+  return new Date(raw);
 }
 
 function parseCSV(text) {
   const lines = text.split(/\r?\n/).filter((l) => l.trim());
   if (lines.length < 2) return { error: "CSV file is empty or has no data rows." };
-  
-  const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
-  const required = ["ds", "recipe_id", "menu_item_code"];
+
+  const headers = lines[0].split(",").map(cleanVal).map((h) => h.toLowerCase());
+  const required = ["date", "menu_item_id", "menu_item_code", "final_cut_off_count"];
   const missing = required.filter((r) => !headers.includes(r));
-  // Also require final_prediction OR finalprediction
-  const hasPredCol = headers.includes("final_prediction") || headers.includes("finalprediction");
-  if (missing.length || !hasPredCol) {
-    const allMissing = [...missing, ...(!hasPredCol ? ["final_prediction"] : [])];
-    return { error: `Missing required columns: ${allMissing.join(", ")}` };
+  if (missing.length) {
+    return { error: `Missing required columns: ${missing.join(", ")}` };
   }
 
   const rows = [];
   const errors = [];
   for (let i = 1; i < lines.length; i++) {
-    const vals = lines[i].split(",").map((v) => v.trim());
+    const vals = lines[i].split(",").map(cleanVal);
     if (vals.every((v) => !v)) continue;
     const row = {};
     headers.forEach((h, idx) => (row[h] = vals[idx] || ""));
 
-    // Support both DD/MM/YYYY and YYYY-MM-DD formats
-    let ds;
-    if (/^\d{2}\/\d{2}\/\d{4}$/.test(row.ds)) {
-      const [dd, mm, yyyy] = row.ds.split("/");
-      ds = new Date(`${yyyy}-${mm}-${dd}`);
-    } else {
-      ds = new Date(row.ds);
-    }
-    if (isNaN(ds.getTime())) { errors.push(`Row ${i + 1}: invalid date "${row.ds}"`); continue; }
-    const rawPred = getPredictionValue(row);
-    const pred = Number(rawPred);
-    if (rawPred === null || isNaN(pred)) { errors.push(`Row ${i + 1}: prediction value is not a number`); continue; }
-    if (!row.recipe_id) { errors.push(`Row ${i + 1}: recipe_id is empty`); continue; }
+    const ds = parseDate(row.date);
+    if (isNaN(ds.getTime())) { errors.push(`Row ${i + 1}: invalid date "${row.date}"`); continue; }
+    const qty = Number(row.final_cut_off_count);
+    if (isNaN(qty)) { errors.push(`Row ${i + 1}: final_cut_off_count is not a number`); continue; }
+    if (!row.menu_item_id) { errors.push(`Row ${i + 1}: menu_item_id is empty`); continue; }
     if (!row.menu_item_code) { errors.push(`Row ${i + 1}: menu_item_code is empty`); continue; }
 
     rows.push({
       cook_date: ds.toISOString().split("T")[0],
-      recipe_id: String(row.recipe_id),
+      menu_item_id: String(row.menu_item_id),
       menu_item_code: String(row.menu_item_code),
-      target_quantity: pred,
+      target_quantity: qty,
+      lp_item_id: `LP-${row.menu_item_id}-STD`,
     });
   }
   return { rows, errors };
@@ -81,8 +79,6 @@ export default function CsvImport() {
   const [preview, setPreview] = useState(null);
   const [parseErrors, setParseErrors] = useState([]);
   const [fileName, setFileName] = useState("");
-  const [duplicates, setDuplicates] = useState([]);
-  const [showOverwrite, setShowOverwrite] = useState(false);
   const [expandedDates, setExpandedDates] = useState({});
   const [deleteTarget, setDeleteTarget] = useState(null);
 
@@ -92,21 +88,53 @@ export default function CsvImport() {
   });
 
   const importMutation = useMutation({
-    mutationFn: async ({ rows, overwrite }) => {
-      if (overwrite && duplicates.length) {
-        for (const dup of duplicates) {
-          await base44.entities.ImportedMealPrediction.delete(dup.id);
+    mutationFn: async (rows) => {
+      let created = 0;
+      let updated = 0;
+      for (const row of rows) {
+        // Find existing record by cook_date + menu_item_code (case-insensitive)
+        const { data: existing, error: findErr } = await supabase
+          .from("imported_meal_predictions")
+          .select("id")
+          .eq("cook_date", row.cook_date)
+          .ilike("menu_item_code", row.menu_item_code)
+          .limit(1);
+        if (findErr) throw findErr;
+
+        if (existing?.length > 0) {
+          const { error: updateErr } = await supabase
+            .from("imported_meal_predictions")
+            .update({
+              menu_item_id: row.menu_item_id,
+              target_quantity: row.target_quantity,
+              lp_item_id: row.lp_item_id,
+              source_file_name: fileName,
+            })
+            .eq("id", existing[0].id);
+          if (updateErr) throw updateErr;
+          updated++;
+        } else {
+          const { error: insertErr } = await supabase
+            .from("imported_meal_predictions")
+            .insert({ ...row, source_file_name: fileName });
+          if (insertErr) throw insertErr;
+          created++;
         }
       }
-      const data = rows.map((r) => ({ ...r, source_file_name: fileName }));
-      await base44.entities.ImportedMealPrediction.bulkCreate(data);
+      return { created, updated };
     },
-    onSuccess: () => {
+    onSuccess: ({ created, updated }) => {
       queryClient.invalidateQueries({ queryKey: ["predictions"] });
+      queryClient.invalidateQueries({ queryKey: ["lp-item-id-map"] });
       setPreview(null);
       setParseErrors([]);
-      setDuplicates([]);
-      toast({ title: "Imported", description: "Meal predictions imported successfully." });
+      toast({
+        title: "Import complete",
+        description: `${created} created, ${updated} updated.`,
+      });
+    },
+    onError: (err) => {
+      toast({ title: "Import failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -124,7 +152,7 @@ export default function CsvImport() {
     },
   });
 
-  if (!admin && !hasPermission?.('csv_import')) return <AccessDenied />;
+  if (!admin && !hasPermission?.("csv_import")) return <AccessDenied />;
 
   const handleFile = (e) => {
     const file = e.target.files?.[0];
@@ -143,24 +171,8 @@ export default function CsvImport() {
       }
       setParseErrors(result.errors);
       setPreview(result.rows);
-
-      // Check duplicates
-      const dupes = [];
-      for (const row of result.rows) {
-        const existing = predictions.find(
-          (p) => p.cook_date === row.cook_date && p.menu_item_code === row.menu_item_code && p.recipe_id === row.recipe_id
-        );
-        if (existing) dupes.push(existing);
-      }
-      setDuplicates(dupes);
-      if (dupes.length > 0) setShowOverwrite(true);
     };
     reader.readAsText(file);
-  };
-
-  const handleImport = (overwrite = false) => {
-    setShowOverwrite(false);
-    importMutation.mutate({ rows: preview, overwrite });
   };
 
   // Group existing predictions by cook_date
@@ -173,11 +185,10 @@ export default function CsvImport() {
 
   const toggleDate = (d) => setExpandedDates((prev) => ({ ...prev, [d]: !prev[d] }));
 
-  // Group preview by cook_date > menu_item_code
+  // Group preview by cook_date for display
   const previewGrouped = preview?.reduce((acc, r) => {
-    if (!acc[r.cook_date]) acc[r.cook_date] = {};
-    if (!acc[r.cook_date][r.menu_item_code]) acc[r.cook_date][r.menu_item_code] = [];
-    acc[r.cook_date][r.menu_item_code].push(r);
+    if (!acc[r.cook_date]) acc[r.cook_date] = [];
+    acc[r.cook_date].push(r);
     return acc;
   }, {});
 
@@ -191,7 +202,7 @@ export default function CsvImport() {
           <label className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-xl p-8 cursor-pointer hover:border-primary/50 hover:bg-muted/50 transition-colors">
             <FileUp className="w-10 h-10 text-muted-foreground mb-3" />
             <span className="font-medium text-foreground">Click to upload CSV</span>
-            <span className="text-sm text-muted-foreground mt-1">Required: ds, recipe_id, menu_item_code, final_prediction</span>
+            <span className="text-sm text-muted-foreground mt-1">Required columns: date, menu_item_id, menu_item_code, final_cut_off_count</span>
             <Input type="file" accept=".csv" className="hidden" onChange={handleFile} />
           </label>
         </CardContent>
@@ -224,20 +235,28 @@ export default function CsvImport() {
             {previewGrouped && Object.keys(previewGrouped).sort().map((date) => (
               <div key={date} className="mb-4">
                 <h3 className="font-semibold text-sm mb-2 text-primary">{date}</h3>
-                {Object.entries(previewGrouped[date]).map(([mic, items]) => (
-                  <div key={mic} className="ml-4 mb-2">
-                    <p className="text-sm font-medium text-foreground">{mic}</p>
-                    {items.map((item, i) => (
-                      <div key={i} className="ml-4 text-sm text-muted-foreground">
-                        Recipe: {item.recipe_id} — Target: {item.target_quantity}
-                      </div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Menu Item Code</TableHead>
+                      <TableHead>LP Item ID</TableHead>
+                      <TableHead className="text-right">Target Qty</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {previewGrouped[date].map((item, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="font-medium">{item.menu_item_code}</TableCell>
+                        <TableCell className="font-mono text-xs text-primary">{item.lp_item_id}</TableCell>
+                        <TableCell className="text-right">{item.target_quantity}</TableCell>
+                      </TableRow>
                     ))}
-                  </div>
-                ))}
+                  </TableBody>
+                </Table>
               </div>
             ))}
             <div className="flex gap-3 mt-4">
-              <Button onClick={() => handleImport(false)} disabled={importMutation.isPending}>
+              <Button onClick={() => importMutation.mutate(preview)} disabled={importMutation.isPending}>
                 <CheckCircle2 className="w-4 h-4 mr-2" />
                 {importMutation.isPending ? "Importing..." : "Confirm Import"}
               </Button>
@@ -287,7 +306,7 @@ export default function CsvImport() {
                         <TableHeader>
                           <TableRow>
                             <TableHead>Menu Item Code</TableHead>
-                            <TableHead>Recipe ID</TableHead>
+                            <TableHead>LP Item ID</TableHead>
                             <TableHead className="text-right">Target Qty</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -295,7 +314,7 @@ export default function CsvImport() {
                           {grouped[date].map((p) => (
                             <TableRow key={p.id}>
                               <TableCell className="font-medium">{p.menu_item_code}</TableCell>
-                              <TableCell>{p.recipe_id}</TableCell>
+                              <TableCell className="font-mono text-xs text-primary">{p.lp_item_id || "—"}</TableCell>
                               <TableCell className="text-right">{p.target_quantity}</TableCell>
                             </TableRow>
                           ))}
@@ -309,28 +328,6 @@ export default function CsvImport() {
           )}
         </CardContent>
       </Card>
-
-      {/* Overwrite Dialog */}
-      <AlertDialog open={showOverwrite} onOpenChange={setShowOverwrite}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Duplicate Records Found</AlertDialogTitle>
-            <AlertDialogDescription>
-              {duplicates.length} record(s) already exist for the same cook date, menu item code, and recipe ID.
-              Would you like to overwrite them?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setShowOverwrite(false)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="outline" onClick={() => handleImport(false)}>
-              Keep Both
-            </AlertDialogAction>
-            <AlertDialogAction onClick={() => handleImport(true)}>
-              Overwrite
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* Delete Dialog */}
       <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>

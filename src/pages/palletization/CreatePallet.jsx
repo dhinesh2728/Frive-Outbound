@@ -21,6 +21,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { generatePalletId, getStacksPerPallet, getRecentPalletIds } from "@/lib/palletUtils";
 import { getCrateValue, getContainerType } from "@/lib/menuItemMappings";
 import { useCurrentUser } from "@/lib/useCurrentUser";
+import { useLpItemIdMap } from "@/lib/useLpItemIdMap";
 
 const CRATES_PER_STACK = 8;
 
@@ -121,11 +122,23 @@ export default function CreatePallet() {
   const crateSettings = crateSettingsArr[0];
   const stacksPerPallet = getStacksPerPallet(crateSettings);
 
-  // Jobs with counted data
-  const activeJobs = useMemo(() =>
-    jobs.filter((j) => (j.total_quantity || 0) > 0),
-    [jobs]
-  );
+  // Jobs with counted data — deduplicated by menu_item_code.
+  // Multiple jobs for the same code (different cook dates) are merged: quantities summed,
+  // most-recent job's metadata used for cook_date lookups.
+  const activeJobs = useMemo(() => {
+    const map = new Map();
+    for (const j of jobs) {
+      if ((j.total_quantity || 0) <= 0) continue;
+      const k = (j.menu_item_code || "").toLowerCase();
+      if (!map.has(k)) {
+        map.set(k, { ...j });
+      } else {
+        // Sum quantities; keep the rest of the most-recently-seen entry as-is
+        map.get(k).total_quantity = (map.get(k).total_quantity || 0) + (j.total_quantity || 0);
+      }
+    }
+    return Array.from(map.values());
+  }, [jobs]);
 
   // Quantity already assigned per code (from existing pallets, NOT current pallet)
   const assignedQtyByCode = useMemo(() => {
@@ -309,6 +322,14 @@ export default function CreatePallet() {
     if (!showPickupDialog) return;
     setHasPrinted(false);
     setPrintTime(new Date());
+
+    // Diagnostic — log pallet item data and LP map so we can verify lp_item_id availability
+    console.log("[Label] savedPalletData.items:", JSON.stringify(savedPalletData?.items, null, 2));
+    const firstCode = (savedPalletData?.items || [])[0]?.menu_item_code;
+    console.log("[Label] menu_item_code (first item):", firstCode);
+    console.log("[Label] lpMap contents:", JSON.stringify(lpMap, null, 2));
+    console.log("[Label] lpMap lookup key (lowercase):", firstCode?.toLowerCase());
+    console.log("[Label] lpMap[key]:", lpMap[firstCode?.toLowerCase() || ""] ?? "(not found)");
   }, [showPickupDialog]);
 
   // Render barcodes after the dialog animation completes.
@@ -340,12 +361,17 @@ export default function CreatePallet() {
     return () => clearTimeout(timer);
   }, [showPickupDialog, savedPalletData]);
 
+  const lpMap = useLpItemIdMap();
+
   const labelDescription = savedPalletData
     ? (savedPalletData.description?.trim() || (savedPalletData.items || []).map((i) => i.menu_item_code).join(", "))
     : "";
   const labelQty = savedPalletData
     ? (savedPalletData.items || []).reduce((sum, i) => sum + (i.quantity || 0), 0)
     : 0;
+  const labelLpId = savedPalletData
+    ? lpMap[((savedPalletData.items || [])[0]?.menu_item_code || "").toLowerCase()] || null
+    : null;
 
   const handlePrint = () => {
     applyPrintStyle(getPrinterSettings());
@@ -665,7 +691,13 @@ export default function CreatePallet() {
                 <p style={{ fontSize: "20px", fontWeight: "bold", lineHeight: "1.2", marginBottom: "4px" }}>
                   {labelDescription}
                 </p>
-                {/* 2. Qty + date */}
+                {/* 2. LP Item ID */}
+                {labelLpId && (
+                  <p style={{ fontSize: "13px", fontWeight: 600, color: "#444", marginBottom: "3px" }}>
+                    {labelLpId}
+                  </p>
+                )}
+                {/* 3. Qty + date */}
                 <p style={{ fontSize: "14px", fontWeight: 600, marginBottom: "2px" }}>
                   {labelQty} meals
                 </p>
@@ -739,7 +771,13 @@ export default function CreatePallet() {
             <p style={{ fontSize: "20px", fontWeight: "bold", textAlign: "center", lineHeight: "1.2", marginBottom: "3mm" }}>
               {labelDescription}
             </p>
-            {/* 2. Quantity + date */}
+            {/* 2. LP Item ID */}
+            {labelLpId && (
+              <p style={{ fontSize: "13px", fontWeight: 600, color: "#444", textAlign: "center", marginBottom: "2mm" }}>
+                {labelLpId}
+              </p>
+            )}
+            {/* 3. Quantity + date */}
             <p style={{ fontSize: "14px", fontWeight: 600, textAlign: "center", marginBottom: "1mm" }}>
               {labelQty} meals
             </p>

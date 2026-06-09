@@ -24,6 +24,7 @@ import PageHeader from "@/components/shared/PageHeader";
 import StatusBadge from "@/components/shared/StatusBadge";
 import CountingHistory from "@/components/counting/CountingHistory";
 import { getContainerType, getCrateValue, getContainerTypeLabels } from "@/lib/menuItemMappings";
+import { useLpItemIdMap } from "@/lib/useLpItemIdMap";
 
 function computeStatus(total, target) {
   if (total === 0) return "not_started";
@@ -50,6 +51,9 @@ export default function CountingDetail() {
   const recipeId = params.get("recipe_id");
   const targetQty = Number(params.get("target"));
   const jobIdParam = params.get("job_id");
+
+  const lpMap = useLpItemIdMap();
+  const lpItemId = lpMap[menuItemCode] || null;
 
   const [manualQty, setManualQty] = useState("");
   const [manualNote, setManualNote] = useState("");
@@ -233,7 +237,7 @@ export default function CountingDetail() {
 
   return (
     <div>
-      <PageHeader title={menuItemCode} description={`Recipe: ${recipeId}`}>
+      <PageHeader title={menuItemCode} description={lpItemId || undefined}>
         <Button variant="outline" onClick={() => navigate(-1)}>
           <ArrowLeft className="w-4 h-4 mr-2" />Back
         </Button>

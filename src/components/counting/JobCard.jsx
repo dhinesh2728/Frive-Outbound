@@ -34,7 +34,9 @@ export default function JobCard({ prediction, job, onClick, crateSettingsMapping
         <div className="flex items-start justify-between mb-2">
           <div className="min-w-0">
             <h3 className="font-bold text-foreground text-lg truncate">{prediction.menu_item_code}</h3>
-            <p className="text-sm text-muted-foreground">Recipe: {prediction.recipe_id}</p>
+            {prediction.lp_item_id && (
+              <p className="text-xs text-muted-foreground font-mono">{prediction.lp_item_id}</p>
+            )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <StatusBadge status={status} />
