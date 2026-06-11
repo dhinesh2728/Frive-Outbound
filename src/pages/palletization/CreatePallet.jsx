@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
+import { supabase } from "@/api/supabaseClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as JsBarcode from "jsbarcode";
 import { getPrinterSettings, applyPrintStyle } from "@/lib/printerSettings";
@@ -22,6 +23,8 @@ import { generatePalletId, getStacksPerPallet, getRecentPalletIds } from "@/lib/
 import { getCrateValue, getContainerType } from "@/lib/menuItemMappings";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 import { useLpItemIdMap } from "@/lib/useLpItemIdMap";
+import { useActiveCookDates } from "@/lib/useActiveCookDates";
+import { belongsToCook } from "@/lib/cookDateFilter";
 
 const CRATES_PER_STACK = 8;
 
@@ -110,9 +113,21 @@ export default function CreatePallet() {
   const [hasPrinted, setHasPrinted] = useState(false);
   const [printTime, setPrintTime] = useState(null);
 
+  const activeCookDates = useActiveCookDates();
+
   const { data: jobs = [] } = useQuery({
-    queryKey: ["all-jobs"],
-    queryFn: () => base44.entities.MealCountJob.list("-created_date", 500),
+    queryKey: ["jobs-active", ...activeCookDates],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("meal_count_jobs")
+        .select("*")
+        .in("cook_date", activeCookDates)
+        .order("created_date", { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: activeCookDates.length > 0,
   });
 
   const { data: crateSettingsArr = [] } = useQuery({
@@ -122,23 +137,21 @@ export default function CreatePallet() {
   const crateSettings = crateSettingsArr[0];
   const stacksPerPallet = getStacksPerPallet(crateSettings);
 
-  // Jobs with counted data — deduplicated by menu_item_code.
-  // Multiple jobs for the same code (different cook dates) are merged: quantities summed,
-  // most-recent job's metadata used for cook_date lookups.
+  // Call site 9 — jobs deduplicated by menu_item_code, belonging to active cook cycle.
   const activeJobs = useMemo(() => {
     const map = new Map();
     for (const j of jobs) {
       if ((j.total_quantity || 0) <= 0) continue;
+      if (!belongsToCook(j, activeCookDates)) continue;
       const k = (j.menu_item_code || "").toLowerCase();
       if (!map.has(k)) {
         map.set(k, { ...j });
       } else {
-        // Sum quantities; keep the rest of the most-recently-seen entry as-is
         map.get(k).total_quantity = (map.get(k).total_quantity || 0) + (j.total_quantity || 0);
       }
     }
     return Array.from(map.values());
-  }, [jobs]);
+  }, [jobs, activeCookDates]);
 
   // Quantity already assigned per code (from existing pallets, NOT current pallet)
   const assignedQtyByCode = useMemo(() => {
@@ -310,6 +323,20 @@ export default function CreatePallet() {
       toast({ title: "No items", description: "Add at least one item to the pallet.", variant: "destructive" });
       return;
     }
+
+    const wouldHaveCookDates = items.some(i => {
+      const job = activeJobs.find(j => j.menu_item_code?.toLowerCase() === i.menu_item_code?.toLowerCase());
+      return !!job?.cook_date;
+    });
+    if (!wouldHaveCookDates) {
+      toast({
+        title: "No active cook date for this item",
+        description: "Cannot create pallet — no meal count job with a cook date was found for this item. Ensure a CSV has been imported for the active cook date.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (totalStacksOnPallet < stacksPerPallet) {
       setShowPartialWarning(true);
     } else {
@@ -642,6 +669,13 @@ export default function CreatePallet() {
         <div className="flex items-center gap-2 text-sm text-emerald-600 font-medium mb-4 p-3 bg-emerald-50 rounded-lg">
           <CheckCircle className="w-4 h-4" />
           Pallet is full ({stacksPerPallet}/{stacksPerPallet} stacks)
+        </div>
+      )}
+
+      {activeCookDates.length === 0 && (
+        <div className="flex items-center gap-2 text-sm text-amber-700 font-medium mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          No active cook date set — go to Admin &rsaquo; Set Cook Date before creating pallets.
         </div>
       )}
 

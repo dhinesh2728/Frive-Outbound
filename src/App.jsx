@@ -15,6 +15,7 @@ import SetCookDate from "./pages/admin/SetCookDate";
 import CookDateSettings from "./pages/admin/CookDateSettings";
 import UserManagement from "./pages/admin/UserManagement";
 import ManagePermissions from "./pages/admin/ManagePermissions";
+import EmailSettings from "./pages/admin/EmailSettings";
 import SelectDates from "./pages/counting/SelectDates";
 import JobList from "./pages/counting/JobList";
 import CountingDetail from "./pages/counting/CountingDetail";
@@ -76,8 +77,9 @@ const AppRoutes = () => {
 
           {/* Superadmin-only */}
           <Route element={<SuperAdminGate />}>
-            <Route path="/admin/users"       element={<UserManagement />} />
-            <Route path="/admin/permissions" element={<ManagePermissions />} />
+            <Route path="/admin/users"          element={<UserManagement />} />
+            <Route path="/admin/permissions"    element={<ManagePermissions />} />
+            <Route path="/admin/email-settings" element={<EmailSettings />} />
           </Route>
 
           {/* Permission-gated: Admin Center */}

@@ -91,8 +91,10 @@ export default function CsvImport() {
     mutationFn: async (rows) => {
       let created = 0;
       let updated = 0;
+      let jobsUpdated = 0;
+
       for (const row of rows) {
-        // Find existing record by cook_date + menu_item_code (case-insensitive)
+        // ── 1. Upsert imported_meal_predictions ───────────────────────────────
         const { data: existing, error: findErr } = await supabase
           .from("imported_meal_predictions")
           .select("id")
@@ -120,17 +122,51 @@ export default function CsvImport() {
           if (insertErr) throw insertErr;
           created++;
         }
+
+        // ── 2. Sync lp_item_id + menu_item_id into meal_count_jobs ───────────
+        // Find all jobs matching this cook_date + menu_item_code
+        const { data: matchingJobs, error: jobFindErr } = await supabase
+          .from("meal_count_jobs")
+          .select("id")
+          .eq("cook_date", row.cook_date)
+          .ilike("menu_item_code", row.menu_item_code);
+
+        if (jobFindErr) {
+          console.warn(
+            `[Import] Could not query meal_count_jobs for ${row.menu_item_code} / ${row.cook_date}:`,
+            jobFindErr.message
+          );
+        } else if (matchingJobs?.length > 0) {
+          const { error: jobUpdateErr } = await supabase
+            .from("meal_count_jobs")
+            .update({
+              menu_item_id: row.menu_item_id,
+              lp_item_id: row.lp_item_id,
+            })
+            .in("id", matchingJobs.map((j) => j.id));
+          if (jobUpdateErr) {
+            console.warn(
+              `[Import] Failed to update meal_count_jobs for ${row.menu_item_code}:`,
+              jobUpdateErr.message
+            );
+          } else {
+            jobsUpdated += matchingJobs.length;
+          }
+        }
       }
-      return { created, updated };
+
+      return { created, updated, jobsUpdated };
     },
-    onSuccess: ({ created, updated }) => {
+    onSuccess: ({ created, updated, jobsUpdated }) => {
       queryClient.invalidateQueries({ queryKey: ["predictions"] });
       queryClient.invalidateQueries({ queryKey: ["lp-item-id-map"] });
+      queryClient.invalidateQueries({ queryKey: ["all-jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["lp-mappings"] });
       setPreview(null);
       setParseErrors([]);
       toast({
         title: "Import complete",
-        description: `${created} created, ${updated} updated.`,
+        description: `${created} created, ${updated} updated${jobsUpdated > 0 ? `, ${jobsUpdated} job LP IDs synced` : ""}.`,
       });
     },
     onError: (err) => {

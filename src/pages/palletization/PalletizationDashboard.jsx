@@ -1,6 +1,9 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { useOutletContext } from "react-router-dom";
+import { supabase } from "@/api/supabaseClient";
 import { base44 } from "@/api/base44Client";
+import { filterByCook, isUnassigned } from "@/lib/cookDateFilter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as JsBarcode from "jsbarcode";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +23,24 @@ import { useCurrentUser } from "@/lib/useCurrentUser";
 import { useToast } from "@/components/ui/use-toast";
 import { getPrinterSettings, savePrinterSettings, applyPrintStyle } from "@/lib/printerSettings";
 import { useLpItemIdMap } from "@/lib/useLpItemIdMap";
+import { useActiveCookDates } from "@/lib/useActiveCookDates";
+import HowToGuide from "@/components/shared/HowToGuide";
+
+const PALLETISATION_STEPS = [
+  { title: "Check meal counts are correct", body: "Before creating any pallet, look at the available count for your meal type on this page. If it shows 0 or looks wrong, STOP — contact the production team to update the meal count in the Meal Counting section first. Do not proceed until the numbers are right." },
+  { title: "Stand next to the pallet", body: "Only create a pallet when you are physically standing next to it and can see exactly what is on it. Never create a pallet from memory or guesswork." },
+  { title: "Click + Create Pallet", body: "Press the Create Pallet button and select the meal type that matches what is on your pallet. Remember: one meal type per pallet only." },
+  { title: "Enter stack count", body: "Count the stacks physically on the pallet in front of you and enter that exact number. Do not estimate." },
+  { title: "Click Pallet Loaded", body: "Once the quantities match what is physically on the pallet, press Pallet Loaded." },
+  { title: "Print the label", body: "The label will appear automatically. Print it and stick it on the pallet straight away before moving it." },
+  { title: "Mark as Ready for Pickup", body: "Press Yes — Ready for Pickup so the outbound team can see this pallet is ready to be collected from the fridge." },
+];
+
+const PALLETISATION_WARNINGS = [
+  "One meal type per pallet — no exceptions",
+  "Do not mark as loaded unless quantities are physically verified",
+  "If meal counts are wrong, contact production before creating pallets",
+];
 
 const STATUS_COLORS = {
   created: "bg-slate-100 text-slate-700",
@@ -54,6 +75,7 @@ export default function PalletizationDashboard() {
   const [readyTarget, setReadyTarget] = useState(null);
   const [activeFilter, setActiveFilter] = useState("all");
   const { data: user } = useCurrentUser();
+  const { admin } = useOutletContext() || {};
 
   // Printer settings panel
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -108,11 +130,6 @@ export default function PalletizationDashboard() {
     setReprintHasPrinted(true);
   };
 
-  const { data: jobs = [] } = useQuery({
-    queryKey: ["all-jobs"],
-    queryFn: () => base44.entities.MealCountJob.list("-created_date", 500),
-  });
-
   const lpMap = useLpItemIdMap();
   const reprintLpId = reprintTarget
     ? lpMap[((reprintTarget.items || [])[0]?.menu_item_code || "").toLowerCase()] || null
@@ -130,21 +147,50 @@ export default function PalletizationDashboard() {
   const crateSettings = crateSettingsArr[0];
   const stacksPerPallet = getStacksPerPallet(crateSettings);
 
+  const activeCookDates = useActiveCookDates();
+
+  const { data: jobs = [] } = useQuery({
+    queryKey: ["jobs-active", ...activeCookDates],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("meal_count_jobs")
+        .select("*")
+        .in("cook_date", activeCookDates)
+        .order("created_date", { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: activeCookDates.length > 0,
+  });
+
+  // Call site 1 — pallets matching active cook cycle
+  const displayPallets = useMemo(
+    () => filterByCook(pallets, activeCookDates),
+    [pallets, activeCookDates]
+  );
+
+  // Call site 2 — pallets with no valid cook date (superadmin section)
+  const unassignedPallets = useMemo(() => {
+    if (!activeCookDates.length) return [];
+    return pallets.filter(isUnassigned);
+  }, [pallets, activeCookDates]);
+
   const totalCountedStacks = useMemo(() => jobs.reduce((sum, j) => sum + (j.total_stacks || 0), 0), [jobs]);
-  const totalAssignedStacks = useMemo(() => pallets.reduce((sum, p) => sum + (p.total_stacks || 0), 0), [pallets]);
+  const totalAssignedStacks = useMemo(() => displayPallets.reduce((sum, p) => sum + (p.total_stacks || 0), 0), [displayPallets]);
   const totalStacksRemaining = Math.max(0, totalCountedStacks - totalAssignedStacks);
 
   const palletTarget = stacksPerPallet > 0 ? Math.ceil(totalCountedStacks / stacksPerPallet) : 0;
-  const palletsCreated = pallets.length;
-  const palletsLoaded = pallets.filter(p => p.status === "loaded_to_trailer").length;
+  const palletsCreated = displayPallets.length;
+  const palletsLoaded = displayPallets.filter(p => p.status === "loaded_to_trailer").length;
   const palletsPending = palletsCreated - palletsLoaded;
 
   // Apply active filter to pallet list
   const filteredPallets = useMemo(() => {
     const fn = CARD_FILTERS[activeFilter];
-    if (!fn) return pallets;
-    return pallets.filter(fn);
-  }, [pallets, activeFilter]);
+    if (!fn) return displayPallets;
+    return displayPallets.filter(fn);
+  }, [displayPallets, activeFilter]);
 
   const filterLabel = {
     all: null,
@@ -195,6 +241,17 @@ export default function PalletizationDashboard() {
           </Button>
         </Link>
       </PageHeader>
+
+      <HowToGuide title="How to create a pallet — read before you start" steps={PALLETISATION_STEPS} warnings={PALLETISATION_WARNINGS} />
+
+      {activeCookDates.length === 0 && (
+        <Card className="mb-5 border-amber-200 bg-amber-50/30">
+          <CardContent className="p-4 flex items-center gap-3 text-amber-700 text-sm">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            No active cook date set — go to Admin &rsaquo; Set Cook Date before creating pallets.
+          </CardContent>
+        </Card>
+      )}
 
       {/* Printer Settings */}
       <div className="mb-5">
@@ -342,6 +399,28 @@ export default function PalletizationDashboard() {
           </div>
         )}
       </div>
+
+      {/* Unassigned cook date — superadmin only */}
+      {admin && unassignedPallets.length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-base font-semibold text-amber-700 flex items-center gap-2 mb-3">
+            <AlertCircle className="w-4 h-4" />
+            Unassigned Cook Date ({unassignedPallets.length})
+          </h2>
+          <div className="space-y-3">
+            {unassignedPallets.map((pallet) => (
+              <PalletLogCard
+                key={pallet.id}
+                pallet={pallet}
+                stacksPerPallet={stacksPerPallet}
+                onDelete={() => setDeleteTarget(pallet)}
+                onMarkReady={() => setReadyTarget(pallet)}
+                onReprint={() => setReprintTarget(pallet)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Delete Dialog */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(v) => !v && setDeleteTarget(null)}>

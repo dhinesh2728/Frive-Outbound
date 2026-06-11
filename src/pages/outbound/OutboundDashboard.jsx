@@ -1,11 +1,31 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { useOutletContext } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
+import { filterByCook, isUnassigned } from "@/lib/cookDateFilter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useActiveCookDates } from "@/lib/useActiveCookDates";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Truck, Package2, CheckCircle, Play, AlertCircle } from "lucide-react";
+import HowToGuide from "@/components/shared/HowToGuide";
+
+const OUTBOUND_STEPS = [
+  { title: "Check the fridge", body: "Before loading anything, go to the fridge and physically check which pallets are ready. Each pallet has a printed label with an 18-digit pallet ID on it." },
+  { title: "Match the pallet ID", body: "Find the pallet in the app by matching the 18-digit ID on the physical label to the pallet shown in the Ready to Load list. Always verify the ID matches before pressing anything." },
+  { title: "Move the pallet to the trailer", body: "Physically move the pallet from the fridge to the trailer first." },
+  { title: "Press Load to Trailer", body: "Only after the pallet is physically inside the trailer, press Load to Trailer in the app. Never press this button before the pallet is actually in the trailer." },
+  { title: "Repeat for all pallets", body: "Continue steps 1–4 for every pallet going into this trailer." },
+  { title: "Verify all pallets are in", body: "Before closing, double check every pallet that should be in the trailer is physically there and marked as loaded in the app." },
+  { title: "Close the trailer", body: "Once all pallets are in and doors are closed, press Close Trailer in Outbound Admin. This will automatically send the ASN report by email to the registered recipients." },
+];
+
+const OUTBOUND_WARNINGS = [
+  "Closing the trailer is permanent and cannot be undone",
+  "Only press Close Trailer when all pallets are physically inside and the trailer is ready to leave",
+  "If a pallet ID does not match, do not load it — contact your supervisor",
+];
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -20,6 +40,7 @@ export default function OutboundDashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: user } = useCurrentUser();
+  const { admin } = useOutletContext() || {};
 
   const [showStartDialog, setShowStartDialog] = useState(false);
   const [selectedTrailerId, setSelectedTrailerId] = useState("");
@@ -35,12 +56,32 @@ export default function OutboundDashboard() {
     queryFn: () => base44.entities.Trailer.list("-created_date", 200),
   });
 
-  const readyTrailers = trailers.filter(t => t.status === "ready_to_load");
-  const activeTrailers = trailers.filter(t => t.status === "loading_in_progress");
-  const completedTrailers = trailers.filter(t => t.status === "loaded_closed");
+  const activeCookDates = useActiveCookDates();
 
-  const readyPallets = pallets.filter(p => p.status === "ready_for_pickup");
-  const loadedPallets = pallets.filter(p => p.status === "loaded_to_trailer");
+  // Call site 3 — trailers matching active cook cycle (filters on trailer.cook_date)
+  const displayTrailers = useMemo(
+    () => filterByCook(trailers, activeCookDates),
+    [trailers, activeCookDates]
+  );
+
+  // Call site 4 — pallets matching active cook cycle
+  const displayPallets = useMemo(
+    () => filterByCook(pallets, activeCookDates),
+    [pallets, activeCookDates]
+  );
+
+  // Call site 5 — pallets with no valid cook date (superadmin section)
+  const unassignedPallets = useMemo(() => {
+    if (!activeCookDates.length) return [];
+    return pallets.filter(isUnassigned);
+  }, [pallets, activeCookDates]);
+
+  const readyTrailers = displayTrailers.filter(t => t.status === "ready_to_load");
+  const activeTrailers = displayTrailers.filter(t => t.status === "loading_in_progress");
+  const completedTrailers = displayTrailers.filter(t => t.status === "loaded_closed");
+
+  const readyPallets = displayPallets.filter(p => p.status === "ready_for_pickup");
+  const loadedPallets = displayPallets.filter(p => p.status === "loaded_to_trailer");
 
   const currentTrailer = trailers.find(t => t.id === activeTrailerId) || activeTrailers[0] || null;
 
@@ -86,6 +127,8 @@ export default function OutboundDashboard() {
           <Play className="w-4 h-4" />Start Outbound
         </Button>
       </PageHeader>
+
+      <HowToGuide title="How to load pallets to a trailer — read before you start" steps={OUTBOUND_STEPS} warnings={OUTBOUND_WARNINGS} />
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
@@ -150,6 +193,23 @@ export default function OutboundDashboard() {
           </CardHeader>
           <CardContent className="space-y-2">
             {loadedPallets.map(p => (
+              <OutboundPalletCard key={p.id} pallet={p} readOnly trailers={trailers} />
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Unassigned cook date — superadmin only */}
+      {admin && unassignedPallets.length > 0 && (
+        <Card className="mt-6 border-amber-200 bg-amber-50/30">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2 text-amber-700">
+              <AlertCircle className="w-4 h-4" />
+              Unassigned Cook Date ({unassignedPallets.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {unassignedPallets.map(p => (
               <OutboundPalletCard key={p.id} pallet={p} readOnly trailers={trailers} />
             ))}
           </CardContent>

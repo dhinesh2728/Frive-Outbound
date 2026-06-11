@@ -247,6 +247,38 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
+-- ============================================================
+-- MIGRATION: Add LP ID columns to meal_count_jobs
+-- Safe to re-run (IF NOT EXISTS). Run in Supabase Dashboard → SQL Editor.
+-- ============================================================
+ALTER TABLE meal_count_jobs
+  ADD COLUMN IF NOT EXISTS lp_item_id    text,
+  ADD COLUMN IF NOT EXISTS menu_item_id  text;
+
+-- ============================================================
+-- BACKFILL: Copy lp_item_id + menu_item_id from imported_meal_predictions
+-- into all meal_count_jobs rows where lp_item_id is still null.
+-- LP IDs are permanent per menu_item_code — safe to copy from any cook date.
+-- Safe to re-run: only updates rows where lp_item_id IS NULL.
+-- ============================================================
+UPDATE meal_count_jobs mcj
+SET
+  lp_item_id   = imp.lp_item_id,
+  menu_item_id = imp.menu_item_id
+FROM (
+  SELECT DISTINCT ON (LOWER(TRIM(menu_item_code)))
+    menu_item_code,
+    lp_item_id,
+    menu_item_id
+  FROM imported_meal_predictions
+  WHERE lp_item_id IS NOT NULL
+  ORDER BY LOWER(TRIM(menu_item_code)), cook_date DESC
+) imp
+WHERE LOWER(TRIM(mcj.menu_item_code)) = LOWER(TRIM(imp.menu_item_code))
+  AND mcj.lp_item_id IS NULL;
+
+-- ============================================================
+
 -- Hardcoded superadmin: username = admin, password = Frive2024!
 -- This account cannot be deactivated or deleted via the UI.
 INSERT INTO public.app_users (username, password_hash, permission_group_id, is_superadmin, is_active)

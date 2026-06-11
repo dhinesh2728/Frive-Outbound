@@ -1,10 +1,15 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useOutletContext } from "react-router-dom";
 import {
   Upload, Settings, BarChart3, ClipboardList, ArrowRight, Layers, Truck,
-  CalendarCog, SlidersHorizontal, Users, ShieldCheck,
+  CalendarCog, SlidersHorizontal, Users, ShieldCheck, Database,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { useMutation } from "@tanstack/react-query";
+import { supabase } from "@/api/supabaseClient";
+import { useToast } from "@/components/ui/use-toast";
 
 const ALL_CARDS = [
   // Working
@@ -42,8 +47,77 @@ function SectionCard({ to, title, desc, icon: Icon, color }) {
   );
 }
 
+function useBackfillPalletCookDates() {
+  const { toast } = useToast();
+  return useMutation({
+    mutationFn: async () => {
+      const { data: allPallets, error: pErr } = await supabase
+        .from("pallets")
+        .select("id, created_date, items, cook_dates");
+      if (pErr) throw pErr;
+
+      const needsBackfill = (allPallets || []).filter((p) => {
+        const cd = p.cook_dates;
+        return !cd || (Array.isArray(cd) && cd.length === 0);
+      });
+
+      if (!needsBackfill.length) return { backfilled: 0, unassigned: 0 };
+
+      const { data: allJobs, error: jErr } = await supabase
+        .from("meal_count_jobs")
+        .select("menu_item_code, cook_date");
+      if (jErr) throw jErr;
+
+      let backfilled = 0;
+      let unassigned = 0;
+
+      for (const pallet of needsBackfill) {
+        const code = ((pallet.items || [])[0]?.menu_item_code || "").toLowerCase().trim();
+        const palletDay = (pallet.created_date || "").substring(0, 10);
+
+        if (!code || !palletDay) {
+          await supabase.from("pallets").update({ cook_dates: ["UNASSIGNED"] }).eq("id", pallet.id);
+          unassigned++;
+          continue;
+        }
+
+        const dayMs = new Date(palletDay + "T12:00:00Z").getTime();
+        const minDate = new Date(dayMs - 86400000).toISOString().substring(0, 10);
+        const maxDate = new Date(dayMs + 86400000).toISOString().substring(0, 10);
+
+        const matches = (allJobs || []).filter((j) => {
+          const jCode = (j.menu_item_code || "").toLowerCase().trim();
+          return jCode === code && j.cook_date >= minDate && j.cook_date <= maxDate;
+        });
+
+        const distinctDates = [...new Set(matches.map((j) => j.cook_date))];
+
+        if (distinctDates.length === 1) {
+          await supabase.from("pallets").update({ cook_dates: [distinctDates[0]] }).eq("id", pallet.id);
+          backfilled++;
+        } else {
+          await supabase.from("pallets").update({ cook_dates: ["UNASSIGNED"] }).eq("id", pallet.id);
+          unassigned++;
+        }
+      }
+
+      return { backfilled, unassigned };
+    },
+    onSuccess: ({ backfilled, unassigned }) => {
+      toast({
+        title: "Backfill complete",
+        description: `${backfilled} backfilled, ${unassigned} unassigned.`,
+      });
+    },
+    onError: (err) => {
+      toast({ title: "Backfill failed", description: err.message, variant: "destructive" });
+    },
+  });
+}
+
 export default function Home() {
   const { admin, hasPermission } = useOutletContext() || {};
+  const backfillMutation = useBackfillPalletCookDates();
 
   const workingCards = ALL_CARDS.filter(
     (c) => c.group === "working" && (c.superadminOnly ? admin : hasPermission?.(c.permKey))
@@ -85,6 +159,41 @@ export default function Home() {
         <div className="text-center py-16 text-muted-foreground">
           <p className="text-lg font-medium">No sections available</p>
           <p className="text-sm mt-1">Contact your administrator to request access.</p>
+        </div>
+      )}
+
+      {admin && (
+        <div className="mt-8">
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3 px-1">
+            Superadmin Tools
+          </h2>
+          <Card>
+            <CardContent className="p-5 flex items-start gap-4">
+              <div className="bg-red-500 w-11 h-11 rounded-xl flex items-center justify-center shrink-0">
+                <Database className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-foreground">Backfill Pallet Cook Dates</h3>
+                <p className="text-sm text-muted-foreground mt-0.5 mb-3">
+                  Find all pallets with no cook date set and derive it from meal count jobs within ±1 day of the pallet's creation date. Ambiguous or unmatched pallets are marked UNASSIGNED.
+                </p>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => backfillMutation.mutate()}
+                  disabled={backfillMutation.isPending}
+                >
+                  <Database className="w-4 h-4 mr-2" />
+                  {backfillMutation.isPending ? "Running backfill…" : "Run Backfill"}
+                </Button>
+                {backfillMutation.isSuccess && (
+                  <p className="text-sm text-emerald-600 font-medium mt-2">
+                    Done: {backfillMutation.data.backfilled} backfilled, {backfillMutation.data.unassigned} unassigned.
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>

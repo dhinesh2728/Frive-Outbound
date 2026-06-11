@@ -7,7 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, ArrowLeft } from "lucide-react";
 import PageHeader from "@/components/shared/PageHeader";
+import HowToGuide from "@/components/shared/HowToGuide";
 import JobCard from "@/components/counting/JobCard";
+
+const MEAL_COUNTING_STEPS = [
+  "Select a job from the list below",
+  "Click + Crate or + Stack to count meals as they are packed",
+  "Use Manual Entry to add or subtract specific quantities",
+  "Once all meals are counted, the job will show as Complete",
+  "All jobs must be complete before moving to Palletisation",
+];
 
 export default function JobList() {
   const navigate = useNavigate();
@@ -110,6 +119,8 @@ export default function JobList() {
           <ArrowLeft className="w-4 h-4 mr-2" />Back
         </Button>
       </PageHeader>
+
+      <HowToGuide steps={MEAL_COUNTING_STEPS} />
 
       <div className="flex flex-col sm:flex-row gap-3 mb-5">
         <div className="relative flex-1">

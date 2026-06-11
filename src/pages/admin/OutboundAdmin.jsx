@@ -1,6 +1,10 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
+import { supabase } from "@/api/supabaseClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { sendAsnEmail } from "@/lib/sendAsnEmail";
+import { useActiveCookDates } from "@/lib/useActiveCookDates";
+import { filterByCook } from "@/lib/cookDateFilter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Truck, Pencil, X, Check, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Truck, Pencil, X, Check, ChevronDown, ChevronUp, Download } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -19,6 +23,35 @@ import AccessDenied from "@/components/shared/AccessDenied";
 import { useOutletContext } from "react-router-dom";
 import { useToast } from "@/components/ui/use-toast";
 import { useCurrentUser } from "@/lib/useCurrentUser";
+
+const CLOSED_STATUSES = ["loaded_closed", "disputed"];
+
+function formatDateDMY(isoStr) {
+  if (!isoStr) return "";
+  const part = String(isoStr).substring(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(part)) return isoStr;
+  const [yyyy, mm, dd] = part.split("-");
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+function addDaysDMY(isoDateStr, days) {
+  const part = String(isoDateStr || "").substring(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(part)) return "";
+  const [y, m, d] = part.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return `${String(dt.getDate()).padStart(2, "0")}/${String(dt.getMonth() + 1).padStart(2, "0")}/${dt.getFullYear()}`;
+}
+
+function exportCSV(rows, filename) {
+  if (!rows.length) return;
+  const headers = Object.keys(rows[0]);
+  const csv = [headers.join(","), ...rows.map((r) => headers.map((h) => `"${r[h] ?? ""}"`).join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
 
 const STATUS_COLORS = {
   draft: "bg-slate-100 text-slate-600",
@@ -69,6 +102,111 @@ export default function OutboundAdmin() {
     queryFn: () => base44.entities.Pallet.list("-created_date", 500),
   });
 
+  const { data: jobs = [] } = useQuery({
+    queryKey: ["all-jobs"],
+    queryFn: () => base44.entities.MealCountJob.list("-created_date", 500),
+  });
+
+  const { data: emailRecipients = [] } = useQuery({
+    queryKey: ["email-recipients"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("email_recipients")
+        .select("*")
+        .order("created_at");
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Build LP map from both meal_count_jobs and imported_meal_predictions.
+  // Predictions are the authoritative source when meal_count_jobs hasn't been backfilled.
+  // meal_count_jobs entries override when populated (after import sync).
+  const { data: lpJobMap = {} } = useQuery({
+    queryKey: ["lp-mappings"],
+    queryFn: async () => {
+      const [jobsRes, predRes] = await Promise.all([
+        supabase.from("meal_count_jobs").select("menu_item_code, lp_item_id").not("lp_item_id", "is", null),
+        supabase.from("imported_meal_predictions").select("menu_item_code, lp_item_id").not("lp_item_id", "is", null),
+      ]);
+      const map = {};
+      for (const row of (predRes.data || [])) {
+        if (row.menu_item_code && row.lp_item_id)
+          map[row.menu_item_code.toLowerCase().trim()] = row.lp_item_id;
+      }
+      for (const row of (jobsRes.data || [])) {
+        if (row.menu_item_code && row.lp_item_id)
+          map[row.menu_item_code.toLowerCase().trim()] = row.lp_item_id;
+      }
+      return map;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const activeCookDates = useActiveCookDates();
+
+  const cookDateMap = useMemo(() => {
+    const map = {};
+    for (const j of jobs) {
+      const k = (j.menu_item_code || "").toLowerCase().trim();
+      if (!map[k] || j.cook_date > map[k]) map[k] = j.cook_date;
+    }
+    return map;
+  }, [jobs]);
+
+  const palletsByTrailer = useMemo(() => {
+    const map = {};
+    for (const p of pallets) {
+      if (!map[p.trailer_id]) map[p.trailer_id] = [];
+      map[p.trailer_id].push(p);
+    }
+    return map;
+  }, [pallets]);
+
+  // Call site 6 — trailers matching active cook cycle (filters on trailer.cook_date)
+  const displayTrailers = useMemo(
+    () => filterByCook(trailers, activeCookDates),
+    [trailers, activeCookDates]
+  );
+
+  function buildAsnRowsForTrailer(trailerId) {
+    return (palletsByTrailer[trailerId] || []).flatMap((pallet) => {
+      const items = pallet.items || [];
+      if (!items.length) return [];
+      const item = items[0];
+      const code = (item.menu_item_code || "").toLowerCase().trim();
+      const cookDate = (pallet.cook_dates || [])[0] || cookDateMap[code] || "";
+
+      const sku = lpJobMap[code] || item.menu_item_code || "";
+
+      const prodIso = (pallet.created_date || "").substring(0, 10);
+      const totalQty = items.reduce((s, i) => s + (i.quantity || 0), 0);
+      return [{
+        CONTRACT: "F063", SUPPLIER: "F063", SKU: sku, "QTY (UNITS)": totalQty,
+        DELIVERYDATE: formatDateDMY(cookDate), REFERENCE: "FriveASN",
+        PalletIdentifier: pallet.pallet_id,
+        Expirydate: prodIso ? addDaysDMY(prodIso, 7) : "",
+        BatchId: "", ProductionDate: formatDateDMY(prodIso),
+      }];
+    });
+  }
+
+  function handleGenerateAsn(trailer) {
+    const rows = buildAsnRowsForTrailer(trailer.id);
+    if (!rows.length) {
+      toast({ title: "No pallet data", description: "No pallets found for this trailer.", variant: "destructive" });
+      return;
+    }
+    const firstPallet = (palletsByTrailer[trailer.id] || [])[0];
+    const cookDateRaw =
+      (firstPallet?.cook_dates || [])[0] ||
+      cookDateMap[((firstPallet?.items || [])[0]?.menu_item_code || "").toLowerCase()] ||
+      trailer.closed_at?.substring(0, 10) ||
+      "unknown";
+    const trailerId = (trailer.trailer_id_label || "").replace(/\s+/g, "_");
+    exportCSV(rows, `ASN_Frive_${cookDateRaw}_${trailerId}.csv`);
+  }
+
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.Trailer.create(data),
     onSuccess: () => {
@@ -102,6 +240,23 @@ export default function OutboundAdmin() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["trailers"] });
+
+      if (emailRecipients.length > 0 && closeTarget) {
+        const trailerPallets = pallets.filter((p) => p.trailer_id === closeTarget.id);
+        sendAsnEmail({
+          trailer: closeTarget,
+          pallets: trailerPallets,
+          jobs,
+          recipients: emailRecipients,
+        })
+          .then((count) => {
+            toast({ title: `ASN email sent to ${count} recipient${count !== 1 ? "s" : ""}` });
+          })
+          .catch((err) => {
+            toast({ title: "ASN email failed", description: err.message, variant: "destructive" });
+          });
+      }
+
       setCloseTarget(null);
       toast({ title: "Trailer closed" });
     },
@@ -157,10 +312,24 @@ export default function OutboundAdmin() {
             <Field label="Notes">
               <Textarea value={form.notes} onChange={e => f("notes")(e.target.value)} rows={2} placeholder="Any additional notes..." />
             </Field>
+            {activeCookDates.length === 0 ? (
+              <div className="flex items-center gap-2 text-sm text-amber-700 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                No active cook date — set one in Admin › Set Cook Date before creating a trailer.
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">Cook date: <strong>{activeCookDates[0]}</strong></p>
+            )}
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
               <Button
-                onClick={() => createMutation.mutate(form)}
+                onClick={() => {
+                  if (!activeCookDates.length) {
+                    toast({ title: "No active cook date", description: "Set a cook date before creating a trailer.", variant: "destructive" });
+                    return;
+                  }
+                  createMutation.mutate({ ...form, cook_date: activeCookDates[0] });
+                }}
                 disabled={!form.trailer_id_label || createMutation.isPending}
               >
                 {createMutation.isPending ? "Creating..." : "Create Trailer"}
@@ -181,9 +350,10 @@ export default function OutboundAdmin() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {trailers.map(trailer => {
+          {displayTrailers.map(trailer => {
             const trailerPallets = pallets.filter(p => p.trailer_id === trailer.id);
-            const isEditing = editingId === trailer.id;
+            const isClosed = CLOSED_STATUSES.includes(trailer.status);
+            const isEditing = editingId === trailer.id && !isClosed;
             const isExpanded = expandedId === trailer.id;
             return (
               <Card key={trailer.id}>
@@ -239,6 +409,7 @@ export default function OutboundAdmin() {
                             </Badge>
                           </div>
                           <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                            {trailer.cook_date && <span className="font-medium text-foreground">Cook: {trailer.cook_date}</span>}
                             {trailer.truck_number && <span>Truck: {trailer.truck_number}</span>}
                             {trailer.driver_name && <span>Driver: {trailer.driver_name}</span>}
                             {trailer.driver_contact && <span>Contact: {trailer.driver_contact}</span>}
@@ -254,12 +425,19 @@ export default function OutboundAdmin() {
                           )}
                         </div>
                         <div className="flex gap-1 shrink-0">
-                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setEditingId(trailer.id); setEditForm(trailer); }}>
-                            <Pencil className="w-3.5 h-3.5" />
-                          </Button>
-                          {(trailer.status === "loading_in_progress" || trailer.status === "ready_to_load") && (
+                          {!isClosed && (
+                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setEditingId(trailer.id); setEditForm(trailer); }}>
+                              <Pencil className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                          {!isClosed && (trailer.status === "loading_in_progress" || trailer.status === "ready_to_load") && (
                             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setCloseTarget(trailer); setCloseForm({ status: "loaded_closed", close_notes: "" }); }}>
                               Close
+                            </Button>
+                          )}
+                          {trailer.status === "loaded_closed" && (
+                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleGenerateAsn(trailer)}>
+                              <Download className="w-3.5 h-3.5 mr-1" />ASN
                             </Button>
                           )}
                           <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setExpandedId(isExpanded ? null : trailer.id)}>

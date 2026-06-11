@@ -1,5 +1,7 @@
 import { useState, useMemo } from "react";
+import { belongsToCook, filterByCook } from "@/lib/cookDateFilter";
 import { base44 } from "@/api/base44Client";
+import { supabase } from "@/api/supabaseClient";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +20,7 @@ import StatusBadge from "@/components/shared/StatusBadge";
 import {
   buildCookDateOptions,
   filterVisibleOptions,
+  findActiveCookDateOption,
   mergeSettings,
 } from "@/lib/cookDateLogic";
 import { getContainerType, getContainerTypeLabels } from "@/lib/menuItemMappings";
@@ -257,16 +260,29 @@ function MealCountingReport({ jobs, entries, predictions, crateSettings, visible
 }
 
 // ── Palletization Tab ──────────────────────────────────────────────────────────
-const PAL_EMPTY = { palletId: "", menuItem: "", cookDate: "", dateFrom: "", dateTo: "", status: "all", createdBy: "", readyForPickup: "all" };
+const PAL_EMPTY = { cookDate: "__active__", palletId: "", menuItem: "", dateFrom: "", dateTo: "", status: "all", createdBy: "", readyForPickup: "all" };
 
-function PalletizationReport({ pallets }) {
+function PalletizationReport({ pallets, activeCookDates }) {
   const [filters, setFilters] = useState(PAL_EMPTY);
   const [applied, setApplied] = useState(PAL_EMPTY);
   const [showFilters, setShowFilters] = useState(false);
   const setFilter = (k, v) => setFilters(f => ({ ...f, [k]: v }));
 
+  const palletCookDates = useMemo(() => {
+    const dates = new Set();
+    for (const p of pallets) {
+      for (const d of (p.cook_dates || [])) {
+        if (d && d !== "UNASSIGNED") dates.add(d);
+      }
+    }
+    return [...dates].sort((a, b) => b.localeCompare(a));
+  }, [pallets]);
+
+  // Call site 7 — cook-date filter via shared utility
   const filtered = useMemo(() => pallets.filter(p => {
     const f = applied;
+    const effectiveDates = f.cookDate === "all" ? [] : f.cookDate === "__active__" ? activeCookDates : [f.cookDate];
+    if (!belongsToCook(p, effectiveDates)) return false;
     if (f.palletId && !p.pallet_id?.toLowerCase().includes(f.palletId.toLowerCase())) return false;
     if (f.menuItem && !(p.items || []).some(i => i.menu_item_code?.toLowerCase().includes(f.menuItem.toLowerCase()))) return false;
     if (f.status !== "all" && p.status !== f.status) return false;
@@ -276,7 +292,7 @@ function PalletizationReport({ pallets }) {
     if (f.dateFrom && p.created_date < f.dateFrom) return false;
     if (f.dateTo && p.created_date > f.dateTo + "T23:59:59") return false;
     return true;
-  }), [pallets, applied]);
+  }), [pallets, applied, activeCookDates]);
 
   return (
     <div>
@@ -290,6 +306,16 @@ function PalletizationReport({ pallets }) {
         <Card className="mb-4">
           <CardContent className="p-4">
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="space-y-1.5"><Label>Cook Date</Label>
+                <Select value={filters.cookDate} onValueChange={v => setFilter("cookDate", v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__active__">Current Cook (Active)</SelectItem>
+                    {palletCookDates.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                    <SelectItem value="all">All dates</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-1.5"><Label>Pallet ID</Label><Input value={filters.palletId} onChange={e => setFilter("palletId", e.target.value)} placeholder="PLT-..." /></div>
               <div className="space-y-1.5"><Label>Menu Item</Label><Input value={filters.menuItem} onChange={e => setFilter("menuItem", e.target.value)} placeholder="e.g. meat 1" /></div>
               <div className="space-y-1.5"><Label>Status</Label>
@@ -377,7 +403,7 @@ function PalletizationReport({ pallets }) {
 // ── Outbound Tab ───────────────────────────────────────────────────────────────
 const OB_EMPTY = { trailerId: "", palletId: "", truckNumber: "", driverName: "", dateFrom: "", dateTo: "" };
 
-function OutboundReport({ pallets, trailers }) {
+function OutboundReport({ pallets, trailers, activeCookDates }) {
   const [filters, setFilters] = useState(OB_EMPTY);
   const [applied, setApplied] = useState(OB_EMPTY);
   const [showFilters, setShowFilters] = useState(false);
@@ -385,7 +411,13 @@ function OutboundReport({ pallets, trailers }) {
 
   const trailerMap = useMemo(() => Object.fromEntries(trailers.map(t => [t.id, t])), [trailers]);
 
-  const filtered = useMemo(() => pallets.filter(p => {
+  // Call site 8 — outbound pallets filtered to active cook cycle
+  const outboundPallets = useMemo(
+    () => filterByCook(pallets.filter(p => p.status === "loaded_to_trailer"), activeCookDates),
+    [pallets, activeCookDates]
+  );
+
+  const filtered = useMemo(() => outboundPallets.filter(p => {
     const f = applied;
     const t = trailerMap[p.trailer_id];
     if (f.palletId && !p.pallet_id?.toLowerCase().includes(f.palletId.toLowerCase())) return false;
@@ -395,7 +427,7 @@ function OutboundReport({ pallets, trailers }) {
     if (f.dateFrom && p.loaded_to_trailer_at && p.loaded_to_trailer_at < f.dateFrom) return false;
     if (f.dateTo && p.loaded_to_trailer_at && p.loaded_to_trailer_at > f.dateTo + "T23:59:59") return false;
     return true;
-  }), [pallets, applied, trailerMap]);
+  }), [outboundPallets, applied, trailerMap]);
 
   return (
     <div>
@@ -475,7 +507,7 @@ function OutboundReport({ pallets, trailers }) {
 
 // ── ASN Report Tab ─────────────────────────────────────────────────────────────
 
-function ASNReport({ trailers, pallets, jobs, predictions }) {
+function ASNReport({ trailers, pallets, jobs }) {
   const [expandedId, setExpandedId] = useState(null);
 
   const closedTrailers = useMemo(
@@ -484,18 +516,34 @@ function ASNReport({ trailers, pallets, jobs, predictions }) {
     [trailers]
   );
 
-  const lpMap = useMemo(() => {
-    const map = {};
-    for (const p of predictions) {
-      if (p.menu_item_code && p.lp_item_id) map[p.menu_item_code.toLowerCase()] = p.lp_item_id;
-    }
-    return map;
-  }, [predictions]);
+  // Build LP map from both tables. Predictions are the authoritative fallback;
+  // meal_count_jobs overrides when populated. No cook_date filter — LP IDs are
+  // permanent per menu_item_code and never change between cooks.
+  const { data: lpJobMap = {} } = useQuery({
+    queryKey: ["lp-mappings"],
+    queryFn: async () => {
+      const [jobsRes, predRes] = await Promise.all([
+        supabase.from("meal_count_jobs").select("menu_item_code, lp_item_id").not("lp_item_id", "is", null),
+        supabase.from("imported_meal_predictions").select("menu_item_code, lp_item_id").not("lp_item_id", "is", null),
+      ]);
+      const map = {};
+      for (const row of (predRes.data || [])) {
+        if (row.menu_item_code && row.lp_item_id)
+          map[row.menu_item_code.toLowerCase().trim()] = row.lp_item_id;
+      }
+      for (const row of (jobsRes.data || [])) {
+        if (row.menu_item_code && row.lp_item_id)
+          map[row.menu_item_code.toLowerCase().trim()] = row.lp_item_id;
+      }
+      return map;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
 
   const cookDateMap = useMemo(() => {
     const map = {};
     for (const j of jobs) {
-      const k = (j.menu_item_code || "").toLowerCase();
+      const k = (j.menu_item_code || "").toLowerCase().trim();
       if (!map[k] || j.cook_date > map[k]) map[k] = j.cook_date;
     }
     return map;
@@ -515,9 +563,11 @@ function ASNReport({ trailers, pallets, jobs, predictions }) {
       const items = pallet.items || [];
       if (!items.length) return [];
       const item = items[0];
-      const code = (item.menu_item_code || "").toLowerCase();
-      const sku = lpMap[code] || item.menu_item_code || "";
+      const code = (item.menu_item_code || "").toLowerCase().trim();
       const cookDate = (pallet.cook_dates || [])[0] || cookDateMap[code] || "";
+
+      const sku = lpJobMap[code] || item.menu_item_code || "";
+
       const prodIso = (pallet.created_date || "").substring(0, 10);
       const totalQty = items.reduce((s, i) => s + (i.quantity || 0), 0);
       return [{
@@ -644,6 +694,7 @@ export default function Reports() {
   const { data: settingsList = [] } = useQuery({ queryKey: ["cook-date-settings"], queryFn: () => base44.entities.CookDateSettings.list("-created_date", 1) });
   const { data: combineRules = [] } = useQuery({ queryKey: ["combine-rules"], queryFn: () => base44.entities.CookDateCombineRule.filter({ is_active: true }, "-created_date", 100) });
   const { data: crateSettingsArr = [] } = useQuery({ queryKey: ["crate-settings"], queryFn: () => base44.entities.CrateSettings.list("-updated_date", 1) });
+  const { data: overrides = [] } = useQuery({ queryKey: ["cook-date-override"], queryFn: () => base44.entities.CookDateOverride.filter({ is_active: true }, "-created_date", 1) });
 
   const crateSettings = crateSettingsArr[0];
   const settings = mergeSettings(settingsList[0] || null);
@@ -651,6 +702,16 @@ export default function Reports() {
   const allOptions = buildCookDateOptions(allCookDates, combineRules);
   const visibleOptions = filterVisibleOptions(allOptions, settings, new Date());
   const visibleCookDates = visibleOptions.flatMap(o => o.dates);
+
+  const activeCookDates = useMemo(() => {
+    const activeOverride = overrides[0] || null;
+    if (activeOverride) {
+      return activeOverride.cook_date_param.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+    const pool = visibleOptions.length > 0 ? visibleOptions : allOptions;
+    const active = findActiveCookDateOption(pool, settings, new Date());
+    return active ? active.dates : [];
+  }, [overrides, visibleOptions, allOptions, settings]);
 
   if (!admin && !hasPermission?.('reports')) return <AccessDenied />;
 
@@ -669,16 +730,20 @@ export default function Reports() {
           <MealCountingReport jobs={jobs} entries={entries} predictions={predictions} crateSettings={crateSettings} visibleCookDates={visibleCookDates} />
         </TabsContent>
         <TabsContent value="palletization">
-          <PalletizationReport pallets={pallets} />
+          <PalletizationReport pallets={pallets} activeCookDates={activeCookDates} />
         </TabsContent>
         <TabsContent value="outbound">
-          <OutboundReport pallets={pallets.filter(p => p.status === "loaded_to_trailer")} trailers={trailers} />
+          <OutboundReport
+            pallets={pallets}
+            trailers={trailers}
+            activeCookDates={activeCookDates}
+          />
         </TabsContent>
         <TabsContent value="trailer-logs">
           <TrailerLogsReport trailers={trailers} pallets={pallets} />
         </TabsContent>
         <TabsContent value="asn-report">
-          <ASNReport trailers={trailers} pallets={pallets} jobs={jobs} predictions={predictions} />
+          <ASNReport trailers={trailers} pallets={pallets} jobs={jobs} />
         </TabsContent>
       </Tabs>
     </div>
