@@ -106,13 +106,6 @@ export default function OutboundDashboard() {
         loaded_to_trailer_by: user?.full_name || user?.email || "unknown",
         trailer_id: trailerId,
       });
-      const trailer = trailers.find(t => t.id === trailerId);
-      const existing = trailer?.pallet_ids || [];
-      if (!existing.includes(pallet.id)) {
-        await base44.entities.Trailer.update(trailerId, {
-          pallet_ids: [...existing, pallet.id],
-        });
-      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pallets"] });

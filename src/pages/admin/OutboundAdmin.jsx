@@ -235,7 +235,6 @@ export default function OutboundAdmin() {
         closed_at: new Date().toISOString(),
         closed_by: user?.full_name || user?.email || "admin",
         final_pallet_count: trailerPallets.length,
-        pallet_ids: trailerPallets.map(p => p.id),
       });
     },
     onSuccess: () => {

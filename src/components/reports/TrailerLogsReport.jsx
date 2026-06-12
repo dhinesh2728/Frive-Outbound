@@ -55,12 +55,9 @@ export default function TrailerLogsReport({ trailers, pallets }) {
   const [expandedId, setExpandedId] = useState(null);
   const setFilter = (k, v) => setFilters(f => ({ ...f, [k]: v }));
 
-  // Build palletMap for quick lookup
-  const palletMap = useMemo(() => Object.fromEntries(pallets.map(p => [p.id, p])), [pallets]);
-
-  // Enrich trailers with computed fields
+  // Enrich trailers with computed fields, using pallets.trailer_id as sole source of truth
   const enriched = useMemo(() => trailers.map(t => {
-    const loadedPallets = (t.pallet_ids || []).map(id => palletMap[id]).filter(Boolean);
+    const loadedPallets = pallets.filter(p => p.trailer_id === t.id);
     const allItems = loadedPallets.flatMap(p => p.items || []);
     const menuItemCodes = [...new Set(allItems.map(i => i.menu_item_code).filter(Boolean))];
     const mealBreakdown = {};
@@ -70,7 +67,7 @@ export default function TrailerLogsReport({ trailers, pallets }) {
     }
     const totalMeals = Object.values(mealBreakdown).reduce((s, v) => s + v, 0);
     return { ...t, loadedPallets, menuItemCodes, mealBreakdown, totalMeals };
-  }), [trailers, palletMap]);
+  }), [trailers, pallets]);
 
   const filtered = useMemo(() => enriched.filter(t => {
     const f = applied;
@@ -79,7 +76,7 @@ export default function TrailerLogsReport({ trailers, pallets }) {
     if (f.driverName && !t.driver_name?.toLowerCase().includes(f.driverName.toLowerCase())) return false;
     if (f.status !== "all" && t.status !== f.status) return false;
     if (f.palletId) {
-      const hasMatch = (t.pallet_ids || []).some(id => palletMap[id]?.pallet_id?.toLowerCase().includes(f.palletId.toLowerCase()));
+      const hasMatch = t.loadedPallets.some(p => p.pallet_id?.toLowerCase().includes(f.palletId.toLowerCase()));
       if (!hasMatch) return false;
     }
     if (f.menuItem) {
@@ -100,7 +97,7 @@ export default function TrailerLogsReport({ trailers, pallets }) {
           trailer_id: t.trailer_id_label, truck_number: t.truck_number || "",
           driver_name: t.driver_name || "", driver_contact: t.driver_contact || "",
           status: TRAILER_STATUS_LABELS[t.status] || t.status,
-          total_pallets: t.pallet_ids?.length || 0, pallet_id: "",
+          total_pallets: t.loadedPallets.length, pallet_id: "",
           menu_item_codes: t.menuItemCodes.join("; "),
           total_meals: t.totalMeals, meal_breakdown: JSON.stringify(t.mealBreakdown),
           close_notes: t.close_notes || "", closed_by: t.closed_by || "",
@@ -111,7 +108,7 @@ export default function TrailerLogsReport({ trailers, pallets }) {
         trailer_id: t.trailer_id_label, truck_number: t.truck_number || "",
         driver_name: t.driver_name || "", driver_contact: t.driver_contact || "",
         status: TRAILER_STATUS_LABELS[t.status] || t.status,
-        total_pallets: t.pallet_ids?.length || 0, pallet_id: p.pallet_id,
+        total_pallets: t.loadedPallets.length, pallet_id: p.pallet_id,
         menu_item_codes: (p.items || []).map(i => i.menu_item_code).join("; "),
         pallet_quantity: (p.items || []).reduce((s, i) => s + (i.quantity || 0), 0),
         total_meals: t.totalMeals, meal_breakdown: JSON.stringify(t.mealBreakdown),
@@ -209,8 +206,8 @@ function TrailerRow({ trailer: t, expanded, onToggle }) {
             <Badge className={`${TRAILER_STATUS_COLORS[t.status] || "bg-slate-100 text-slate-600"} border-0 text-xs`}>
               {TRAILER_STATUS_LABELS[t.status] || t.status}
             </Badge>
-            {t.pallet_ids?.length > 0 && (
-              <span className="text-xs text-muted-foreground">{t.pallet_ids.length} pallet{t.pallet_ids.length !== 1 ? "s" : ""} loaded</span>
+            {t.loadedPallets.length > 0 && (
+              <span className="text-xs text-muted-foreground">{t.loadedPallets.length} pallet{t.loadedPallets.length !== 1 ? "s" : ""} loaded</span>
             )}
           </div>
           <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
