@@ -181,7 +181,7 @@ export default function CreatePallet() {
   /**
    * Get available quantity for a menu item code
    * = total counted - already in existing pallets
-   * (currentPallet items are excluded from assignedQtyByCode so they don't reduce availability)
+   * (currentPallet items are excluded from assignedQtyByJobId so they don't reduce availability)
    */
   function getAvailableQty(code) {
     const job = activeJobs.find((j) => j.menu_item_code?.toLowerCase() === (code || "").toLowerCase());
@@ -221,7 +221,7 @@ export default function CreatePallet() {
     if (!newCode) return null;
     const availQty = getAvailableQty(newCode);
     return getBreakdown(newCode, availQty, crateSettings);
-  }, [newCode, assignedQtyByCode, crateSettings, activeJobs]);
+  }, [newCode, assignedQtyByJobId, crateSettings, activeJobs]);
 
   function handleAddItem() {
     setAddError("");
