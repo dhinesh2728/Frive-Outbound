@@ -177,7 +177,17 @@ export default function PalletizationDashboard() {
   }, [pallets, activeCookDates]);
 
   const totalCountedStacks = useMemo(() => jobs.reduce((sum, j) => sum + (j.total_stacks || 0), 0), [jobs]);
-  const totalAssignedStacks = useMemo(() => displayPallets.reduce((sum, p) => sum + (p.total_stacks || 0), 0), [displayPallets]);
+
+  const activeJobIdSet = useMemo(() => new Set(jobs.map(j => j.id)), [jobs]);
+
+  // Pallets with job_id: only count if the linked job belongs to the active cook.
+  // Pallets without job_id (legacy, pre-backfill): always count — already cook-date filtered.
+  const totalAssignedStacks = useMemo(() => displayPallets.reduce((sum, p) => {
+    const hasJobLink = (p.items || []).some(i => i.job_id);
+    if (hasJobLink && !(p.items || []).some(i => i.job_id && activeJobIdSet.has(i.job_id))) return sum;
+    return sum + (p.total_stacks || 0);
+  }, 0), [displayPallets, activeJobIdSet]);
+
   const totalStacksRemaining = Math.max(0, totalCountedStacks - totalAssignedStacks);
 
   const palletTarget = stacksPerPallet > 0 ? Math.ceil(totalCountedStacks / stacksPerPallet) : 0;

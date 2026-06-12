@@ -115,9 +115,56 @@ function useBackfillPalletCookDates() {
   });
 }
 
+function useBackfillPalletJobIds() {
+  const { toast } = useToast();
+  return useMutation({
+    mutationFn: async () => {
+      const { data: allPallets, error: pErr } = await supabase
+        .from("pallets").select("id, items, cook_dates");
+      if (pErr) throw pErr;
+
+      const { data: allJobs, error: jErr } = await supabase
+        .from("meal_count_jobs").select("id, menu_item_code, cook_date");
+      if (jErr) throw jErr;
+
+      let linked = 0, ambiguous = 0, noMatch = 0;
+
+      for (const pallet of (allPallets || [])) {
+        const cookDates = (pallet.cook_dates || []).filter(d => d !== "UNASSIGNED");
+        let dirty = false;
+        const newItems = (pallet.items || []).map(item => {
+          if (item.job_id) return item;
+          const code = (item.menu_item_code || "").toLowerCase().trim();
+          if (!code || !cookDates.length) { noMatch++; return item; }
+          const matches = (allJobs || []).filter(j =>
+            (j.menu_item_code || "").toLowerCase().trim() === code &&
+            cookDates.includes(j.cook_date)
+          );
+          if (matches.length === 1) { linked++; dirty = true; return { ...item, job_id: matches[0].id }; }
+          if (matches.length > 1) { ambiguous++; return item; }
+          noMatch++;
+          return item;
+        });
+        if (dirty) await supabase.from("pallets").update({ items: newItems }).eq("id", pallet.id);
+      }
+      return { linked, ambiguous, noMatch };
+    },
+    onSuccess: ({ linked, ambiguous, noMatch }) => {
+      toast({
+        title: "Job ID backfill complete",
+        description: `${linked} linked, ${ambiguous} ambiguous (multiple jobs), ${noMatch} unresolvable.`,
+      });
+    },
+    onError: (err) => {
+      toast({ title: "Backfill failed", description: err.message, variant: "destructive" });
+    },
+  });
+}
+
 export default function Home() {
   const { admin, hasPermission } = useOutletContext() || {};
   const backfillMutation = useBackfillPalletCookDates();
+  const backfillJobIdMutation = useBackfillPalletJobIds();
 
   const workingCards = ALL_CARDS.filter(
     (c) => c.group === "working" && (c.superadminOnly ? admin : hasPermission?.(c.permKey))
@@ -189,6 +236,36 @@ export default function Home() {
                 {backfillMutation.isSuccess && (
                   <p className="text-sm text-emerald-600 font-medium mt-2">
                     Done: {backfillMutation.data.backfilled} backfilled, {backfillMutation.data.unassigned} unassigned.
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="mt-3">
+            <CardContent className="p-5 flex items-start gap-4">
+              <div className="bg-red-500 w-11 h-11 rounded-xl flex items-center justify-center shrink-0">
+                <Database className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-foreground">Backfill Pallet Item Job IDs</h3>
+                <p className="text-sm text-muted-foreground mt-0.5 mb-3">
+                  Walk all pallet items without a job_id and resolve them by menu_item_code + cook_date
+                  against meal_count_jobs. Exactly one match → writes job_id. Ambiguous or no match → left null.
+                </p>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => backfillJobIdMutation.mutate()}
+                  disabled={backfillJobIdMutation.isPending}
+                >
+                  <Database className="w-4 h-4 mr-2" />
+                  {backfillJobIdMutation.isPending ? "Running backfill…" : "Run Backfill"}
+                </Button>
+                {backfillJobIdMutation.isSuccess && (
+                  <p className="text-sm text-emerald-600 font-medium mt-2">
+                    Done: {backfillJobIdMutation.data.linked} linked,{" "}
+                    {backfillJobIdMutation.data.ambiguous} ambiguous,{" "}
+                    {backfillJobIdMutation.data.noMatch} unresolvable.
                   </p>
                 )}
               </div>

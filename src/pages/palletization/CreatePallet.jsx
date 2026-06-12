@@ -153,24 +153,24 @@ export default function CreatePallet() {
     return Array.from(map.values());
   }, [jobs, activeCookDates]);
 
-  // Quantity already assigned per code (from existing pallets, NOT current pallet)
-  const assignedQtyByCode = useMemo(() => {
+  // Quantity already assigned per job (from existing pallets, NOT current pallet).
+  // Keyed on item.job_id — immune to cross-cook contamination from prior cooks.
+  const assignedQtyByJobId = useMemo(() => {
     const map = {};
     for (const p of existingPallets) {
       for (const item of (p.items || [])) {
-        const k = (item.menu_item_code || "").toLowerCase();
-        map[k] = (map[k] || 0) + (item.quantity || 0);
+        if (!item.job_id) continue;
+        map[item.job_id] = (map[item.job_id] || 0) + (item.quantity || 0);
       }
     }
     return map;
   }, [existingPallets]);
 
-  // Quantity assigned in current pallet (so we don't double-count when checking availability)
-  const currentPalletQtyByCode = useMemo(() => {
+  const currentPalletQtyByJobId = useMemo(() => {
     const map = {};
     for (const item of items) {
-      const k = (item.menu_item_code || "").toLowerCase();
-      map[k] = (map[k] || 0) + (item.quantity || 0);
+      if (!item.job_id) continue;
+      map[item.job_id] = (map[item.job_id] || 0) + (item.quantity || 0);
     }
     return map;
   }, [items]);
@@ -184,10 +184,10 @@ export default function CreatePallet() {
    * (currentPallet items are excluded from assignedQtyByCode so they don't reduce availability)
    */
   function getAvailableQty(code) {
-    const k = (code || "").toLowerCase();
-    const job = activeJobs.find((j) => j.menu_item_code?.toLowerCase() === k);
-    const total = job?.total_quantity || 0;
-    const assigned = (assignedQtyByCode[k] || 0) + (currentPalletQtyByCode[k] || 0);
+    const job = activeJobs.find((j) => j.menu_item_code?.toLowerCase() === (code || "").toLowerCase());
+    if (!job) return 0;
+    const total = job.total_quantity || 0;
+    const assigned = (assignedQtyByJobId[job.id] || 0) + (currentPalletQtyByJobId[job.id] || 0);
     return Math.max(0, total - assigned);
   }
 
@@ -247,6 +247,7 @@ export default function CreatePallet() {
         quantity: qty,
         is_unit_based: true,
         is_manual: isManualCode,
+        job_id: getJobForCode(code)?.id || null,
       }];
       pushHistory(newItems);
     } else {
@@ -278,6 +279,7 @@ export default function CreatePallet() {
         units_entered: units,
         is_unit_based: false,
         is_manual: isManualCode,
+        job_id: getJobForCode(code)?.id || null,
       }];
       pushHistory(newItems);
     }
@@ -305,7 +307,7 @@ export default function CreatePallet() {
         status: "created",
         is_flagged: false,
         cook_dates: [...new Set(items.map(i => {
-          const job = activeJobs.find(j => j.menu_item_code?.toLowerCase() === i.menu_item_code?.toLowerCase());
+          const job = activeJobs.find(j => j.id === i.job_id);
           return job?.cook_date;
         }).filter(Boolean))],
       };
