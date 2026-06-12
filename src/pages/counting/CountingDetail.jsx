@@ -147,26 +147,64 @@ export default function CountingDetail() {
       };
 
       let jobId = jobData?.id;
+
       if (!jobId) {
-        const newJob = await base44.entities.MealCountJob.create({
-          cook_date: cookDate,
-          present_date: presentDate,
-          menu_item_code: menuItemCode,
-          recipe_id: recipeId,
-          target_quantity: targetQty,
-          selected_bowl_type: containerType,
-          crate_value_used: crateValue,
-          total_crates: crateCount || 0,
-          total_stacks: stackCount || 0,
-          manual_additions: entryType === "manual_add" ? manualQuantity : 0,
-          manual_subtractions: entryType === "manual_subtract" ? manualQuantity : 0,
-          total_quantity: newTotal,
-          difference_from_target: diff,
-          status: newStatus,
-          notes: "",
-        });
-        jobId = newJob.id;
-        entryData.job_id = jobId;
+        // Try to create the job; on unique conflict (23505) another session won the race —
+        // fetch the existing job and fall through to the normal update path.
+        let racedJob = null;
+        try {
+          const newJob = await base44.entities.MealCountJob.create({
+            cook_date: cookDate,
+            present_date: presentDate,
+            menu_item_code: menuItemCode,
+            recipe_id: recipeId,
+            target_quantity: targetQty,
+            selected_bowl_type: containerType,
+            crate_value_used: crateValue,
+            total_crates: crateCount || 0,
+            total_stacks: stackCount || 0,
+            manual_additions: entryType === "manual_add" ? manualQuantity : 0,
+            manual_subtractions: entryType === "manual_subtract" ? manualQuantity : 0,
+            total_quantity: newTotal,
+            difference_from_target: diff,
+            status: newStatus,
+            notes: "",
+          });
+          jobId = newJob.id;
+          entryData.job_id = jobId;
+          // Fresh job has correct totals from the create — no further update needed.
+        } catch (createErr) {
+          if (createErr?.code !== "23505") throw createErr;
+          // Unique violation: job already exists from a concurrent session. Reuse it.
+          const existing = await base44.entities.MealCountJob.filter(
+            { cook_date: cookDate, menu_item_code: menuItemCode },
+            "-created_date",
+            1
+          );
+          if (!existing[0]) throw createErr;
+          racedJob = existing[0];
+          jobId = racedJob.id;
+          entryData.job_id = jobId;
+        }
+
+        if (racedJob) {
+          // Update the existing job exactly like the normal "else" path below,
+          // but rebased against the raced job's current totals.
+          const racedTotal = (racedJob.total_quantity || 0) + quantity;
+          entryData.running_total = racedTotal;
+          const racedUpdate = {
+            selected_bowl_type: containerType,
+            crate_value_used: crateValue,
+            total_crates: (racedJob.total_crates || 0) + (crateCount || 0),
+            total_stacks: (racedJob.total_stacks || 0) + (stackCount || 0),
+            total_quantity: racedTotal,
+            difference_from_target: racedTotal - targetQty,
+            status: computeStatus(racedTotal, targetQty),
+          };
+          if (entryType === "manual_add") racedUpdate.manual_additions = (racedJob.manual_additions || 0) + manualQuantity;
+          if (entryType === "manual_subtract") racedUpdate.manual_subtractions = (racedJob.manual_subtractions || 0) + manualQuantity;
+          await base44.entities.MealCountJob.update(jobId, racedUpdate);
+        }
       } else {
         const updateData = {
           selected_bowl_type: containerType,
@@ -384,7 +422,7 @@ export default function CountingDetail() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmOverTarget}>Continue Anyway</AlertDialogAction>
+            <AlertDialogAction onClick={confirmOverTarget} disabled={addEntryMutation.isPending}>Continue Anyway</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
