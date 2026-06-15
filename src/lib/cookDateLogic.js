@@ -7,7 +7,7 @@
 export const DEFAULT_SETTINGS = {
   cutoff_hour: 21,
   cutoff_minute: 0,
-  single_date_cutoff_days_before: 1,
+  single_date_cutoff_days_before: 2,
   combined_use_first_date: true,
   visibility_days_before_today: 14,
 };
@@ -110,7 +110,7 @@ export function buildCookDateOptions(sortedAscDates, manualCombineRules = []) {
 /**
  * Returns the cutoff Date object for a given cook option.
  *
- * Combined (Sun+Mon): cutoff = first date (Sunday if combined_use_first_date=true)
+ * Combined (Sun+Mon): cutoff = Saturday — 1 day before the first date (Sunday)
  *                              at cutoff_hour:cutoff_minute
  * Single: cutoff = cook date minus single_date_cutoff_days_before days
  *                  at cutoff_hour:cutoff_minute
@@ -119,8 +119,10 @@ export function getCutoffDeadline(option, settings) {
   const s = mergeSettings(settings);
   let refDate;
   if (option.combined) {
-    // Use first or last date of combined pair
-    refDate = s.combined_use_first_date ? option.dates[0] : option.dates[option.dates.length - 1];
+    // Cutoff is Saturday — 1 day before the Sunday that opens the combined pair
+    const firstMs = parseLocalDate(option.dates[0]).getTime();
+    const sat = new Date(firstMs - 24 * 60 * 60 * 1000);
+    refDate = `${sat.getFullYear()}-${String(sat.getMonth() + 1).padStart(2, "0")}-${String(sat.getDate()).padStart(2, "0")}`;
   } else {
     const cookDateMs = parseLocalDate(option.dates[0]).getTime();
     const offsetMs = s.single_date_cutoff_days_before * 24 * 60 * 60 * 1000;
