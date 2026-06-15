@@ -126,7 +126,10 @@ export default function CookDateSettings() {
                 onChange={(e) => set("single_date_cutoff_days_before", Math.min(7, Math.max(0, Number(e.target.value))))}
               />
               <p className="text-xs text-muted-foreground">
-                Default: 1 — e.g. cook date 27 May → cutoff 26 May at {cutoffTimeStr}
+                {form.single_date_cutoff_days_before} day{form.single_date_cutoff_days_before !== 1 ? "s" : ""} before — e.g. cook date 27 May → cutoff{" "}
+                {new Date(new Date(2025, 4, 27).getTime() - form.single_date_cutoff_days_before * 86400000)
+                  .toLocaleDateString("en-GB", { day: "numeric", month: "short" })}{" "}
+                at {cutoffTimeStr}
               </p>
             </div>
           </CardContent>
@@ -140,16 +143,14 @@ export default function CookDateSettings() {
               <CardTitle className="text-base">Combined Cook Date Cutoff</CardTitle>
             </div>
             <CardDescription>
-              For combined Sunday + Monday pairs, which date is used as the cutoff reference?
+              For combined Sunday + Monday pairs, the cutoff deadline always falls on the Saturday before the pair.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-foreground">Use first date (Sunday) as cutoff reference</p>
+              <p className="text-sm font-medium text-foreground">Cutoff falls on Saturday before the pair</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {form.combined_use_first_date
-                  ? "e.g. 31 May + 1 Jun → cutoff is 31 May at " + cutoffTimeStr
-                  : "e.g. 31 May + 1 Jun → cutoff is 1 Jun at " + cutoffTimeStr}
+                {"e.g. 31 May + 1 Jun → cutoff is Saturday 30 May at " + cutoffTimeStr}
               </p>
             </div>
             <Switch
