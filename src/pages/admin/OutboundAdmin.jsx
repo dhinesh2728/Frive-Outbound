@@ -240,6 +240,17 @@ export default function OutboundAdmin() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["trailers"] });
 
+      const apiKeyPreview = import.meta.env.VITE_RESEND_API_KEY
+        ? import.meta.env.VITE_RESEND_API_KEY.slice(0, 5) + "…"
+        : "MISSING";
+      console.log("[ASN] Trailer close triggered", {
+        trailerId: closeTarget?.id,
+        trailerLabel: closeTarget?.trailer_id_label,
+        apiKeyPreview,
+        recipientCount: emailRecipients.length,
+        palletCount: pallets.filter((p) => p.trailer_id === closeTarget?.id).length,
+      });
+
       if (emailRecipients.length > 0 && closeTarget) {
         const trailerPallets = pallets.filter((p) => p.trailer_id === closeTarget.id);
         sendAsnEmail({
@@ -249,11 +260,15 @@ export default function OutboundAdmin() {
           recipients: emailRecipients,
         })
           .then((count) => {
+            console.log("[ASN] Email sent successfully, recipient count:", count);
             toast({ title: `ASN email sent to ${count} recipient${count !== 1 ? "s" : ""}` });
           })
           .catch((err) => {
+            console.error("[ASN] sendAsnEmail threw:", err);
             toast({ title: "ASN email failed", description: err.message, variant: "destructive" });
           });
+      } else {
+        console.warn("[ASN] Email skipped — recipients:", emailRecipients.length, "closeTarget:", !!closeTarget);
       }
 
       setCloseTarget(null);
