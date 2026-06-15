@@ -236,25 +236,28 @@ export default function OutboundAdmin() {
         closed_by: user?.full_name || user?.email || "admin",
         final_pallet_count: trailerPallets.length,
       });
+      // Return the trailer so onSuccess doesn't depend on closeTarget state —
+      // the dialog's onOpenChange nulls closeTarget before onSuccess fires.
+      return trailers.find(t => t.id === id) ?? { id };
     },
-    onSuccess: () => {
+    onSuccess: (trailer) => {
       queryClient.invalidateQueries({ queryKey: ["trailers"] });
 
       const apiKeyPreview = import.meta.env.VITE_RESEND_API_KEY
         ? import.meta.env.VITE_RESEND_API_KEY.slice(0, 5) + "…"
         : "MISSING";
       console.log("[ASN] Trailer close triggered", {
-        trailerId: closeTarget?.id,
-        trailerLabel: closeTarget?.trailer_id_label,
+        trailerId: trailer?.id,
+        trailerLabel: trailer?.trailer_id_label,
         apiKeyPreview,
         recipientCount: emailRecipients.length,
-        palletCount: pallets.filter((p) => p.trailer_id === closeTarget?.id).length,
+        palletCount: pallets.filter((p) => p.trailer_id === trailer?.id).length,
       });
 
-      if (emailRecipients.length > 0 && closeTarget) {
-        const trailerPallets = pallets.filter((p) => p.trailer_id === closeTarget.id);
+      if (emailRecipients.length > 0 && trailer?.id) {
+        const trailerPallets = pallets.filter((p) => p.trailer_id === trailer.id);
         sendAsnEmail({
-          trailer: closeTarget,
+          trailer,
           pallets: trailerPallets,
           jobs,
           recipients: emailRecipients,
@@ -268,7 +271,7 @@ export default function OutboundAdmin() {
             toast({ title: "ASN email failed", description: err.message, variant: "destructive" });
           });
       } else {
-        console.warn("[ASN] Email skipped — recipients:", emailRecipients.length, "closeTarget:", !!closeTarget);
+        console.warn("[ASN] Email skipped — recipients:", emailRecipients.length, "trailerId:", trailer?.id);
       }
 
       setCloseTarget(null);
