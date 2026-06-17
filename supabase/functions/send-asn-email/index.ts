@@ -35,7 +35,7 @@ serve(async (req: Request) => {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        from: "Frive Outbound <no-reply@frive.co.uk>",
+        from: "Frive Outbound <no-reply-ops@frive.co.uk>",
         to,
         subject,
         text,
