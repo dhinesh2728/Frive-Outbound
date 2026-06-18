@@ -84,10 +84,11 @@ export default function JobList() {
   const filtered = useMemo(() => {
     return mergedPredictions.filter((p) => {
       const q = search.toLowerCase();
-      const matchSearch = !q || p.menu_item_code.toLowerCase().includes(q) || p.recipe_id.toLowerCase().includes(q);
+      const matchSearch = !q || (p.menu_item_code || "").toLowerCase().includes(q) || (p.recipe_id || "").toLowerCase().includes(q);
       const job = jobMap[`${p.menu_item_code}_${p.recipe_id}`];
       const status = job?.status || "not_started";
-      const matchStatus = statusFilter === "all" || status === statusFilter;
+      const matchStatus = statusFilter === "all" || status === statusFilter ||
+        (statusFilter === "complete" && status === "over_target");
       return matchSearch && matchStatus;
     });
   }, [mergedPredictions, search, statusFilter, jobMap]);
@@ -140,8 +141,7 @@ export default function JobList() {
             <SelectItem value="all">All Statuses</SelectItem>
             <SelectItem value="not_started">Not Started</SelectItem>
             <SelectItem value="in_progress">In Progress</SelectItem>
-            <SelectItem value="complete">Complete</SelectItem>
-            <SelectItem value="over_target">Over Target</SelectItem>
+            <SelectItem value="complete">Complete (incl. Over Target)</SelectItem>
           </SelectContent>
         </Select>
       </div>
