@@ -95,11 +95,13 @@ export default function OutboundAdmin() {
   const { data: trailers = [], isLoading } = useQuery({
     queryKey: ["trailers"],
     queryFn: () => base44.entities.Trailer.list("-created_date", 200),
+    refetchInterval: 30_000,
   });
 
   const { data: pallets = [] } = useQuery({
     queryKey: ["pallets"],
     queryFn: () => base44.entities.Pallet.list("-created_date", 500),
+    refetchInterval: 30_000,
   });
 
   const { data: jobs = [] } = useQuery({
