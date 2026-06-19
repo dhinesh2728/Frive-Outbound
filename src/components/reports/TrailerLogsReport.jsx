@@ -86,7 +86,7 @@ export default function TrailerLogsReport({ trailers, pallets }) {
     if (f.dateFrom && t.created_date < f.dateFrom) return false;
     if (f.dateTo && t.created_date > f.dateTo + "T23:59:59") return false;
     return true;
-  }), [enriched, applied, palletMap]);
+  }), [enriched, applied]);
 
   const hasActive = Object.entries(applied).some(([k, v]) => v !== TL_EMPTY[k]);
 
