@@ -64,7 +64,7 @@ function parseCSV(text) {
     rows.push({
       cook_date: ds.toISOString().split("T")[0],
       menu_item_id: String(row.menu_item_id),
-      menu_item_code: String(row.menu_item_code),
+      menu_item_code: String(row.menu_item_code).toLowerCase().trim(),
       target_quantity: qty,
       lp_item_id: `LP-${row.menu_item_id}-STD`,
     });
@@ -95,33 +95,14 @@ export default function CsvImport() {
 
       for (const row of rows) {
         // ── 1. Upsert imported_meal_predictions ───────────────────────────────
-        const { data: existing, error: findErr } = await supabase
+        const { error: upsertErr } = await supabase
           .from("imported_meal_predictions")
-          .select("id")
-          .eq("cook_date", row.cook_date)
-          .ilike("menu_item_code", row.menu_item_code)
-          .limit(1);
-        if (findErr) throw findErr;
-
-        if (existing?.length > 0) {
-          const { error: updateErr } = await supabase
-            .from("imported_meal_predictions")
-            .update({
-              menu_item_id: row.menu_item_id,
-              target_quantity: row.target_quantity,
-              lp_item_id: row.lp_item_id,
-              source_file_name: fileName,
-            })
-            .eq("id", existing[0].id);
-          if (updateErr) throw updateErr;
-          updated++;
-        } else {
-          const { error: insertErr } = await supabase
-            .from("imported_meal_predictions")
-            .insert({ ...row, source_file_name: fileName });
-          if (insertErr) throw insertErr;
-          created++;
-        }
+          .upsert(
+            { ...row, source_file_name: fileName },
+            { onConflict: "cook_date,menu_item_code" }
+          );
+        if (upsertErr) throw upsertErr;
+        created++;
 
         // ── 2. Sync lp_item_id + menu_item_id into meal_count_jobs ───────────
         // Find all jobs matching this cook_date + menu_item_code

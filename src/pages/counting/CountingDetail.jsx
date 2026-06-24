@@ -158,6 +158,7 @@ export default function CountingDetail() {
             present_date: presentDate,
             menu_item_code: menuItemCode,
             recipe_id: recipeId,
+            lp_item_id: lpItemId,
             target_quantity: targetQty,
             selected_bowl_type: containerType,
             crate_value_used: crateValue,

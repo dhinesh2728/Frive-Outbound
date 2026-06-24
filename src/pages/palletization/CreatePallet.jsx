@@ -308,7 +308,7 @@ export default function CreatePallet() {
         is_flagged: false,
         cook_dates: [...new Set(items.map(i => {
           const job = activeJobs.find(j => j.id === i.job_id);
-          return job?.cook_date;
+          return job?.cook_date || activeCookDates[0] || null;
         }).filter(Boolean))],
       };
       return base44.entities.Pallet.create(data);
@@ -415,6 +415,7 @@ export default function CreatePallet() {
       status,
       is_flagged: !readyForPickup,
       ready_for_pickup_at: readyForPickup ? new Date().toISOString() : undefined,
+      ready_for_pickup_by: readyForPickup ? (user?.username || user?.full_name || 'unknown') : undefined,
     });
     queryClient.invalidateQueries({ queryKey: ["pallets"] });
     setShowPickupDialog(false);
