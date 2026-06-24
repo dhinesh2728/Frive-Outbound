@@ -23,6 +23,7 @@ import PalletizationDashboard from "./pages/palletization/PalletizationDashboard
 import CreatePallet from "./pages/palletization/CreatePallet";
 import OutboundDashboard from "./pages/outbound/OutboundDashboard";
 import OutboundAdmin from "./pages/admin/OutboundAdmin";
+import AdminDashboard from "./pages/admin/AdminDashboard";
 
 const LoadingScreen = () => (
   <div className="fixed inset-0 flex items-center justify-center">
@@ -77,6 +78,7 @@ const AppRoutes = () => {
 
           {/* Superadmin-only */}
           <Route element={<SuperAdminGate />}>
+            <Route path="/admin/dashboard"      element={<AdminDashboard />} />
             <Route path="/admin/users"          element={<UserManagement />} />
             <Route path="/admin/permissions"    element={<ManagePermissions />} />
             <Route path="/admin/email-settings" element={<EmailSettings />} />

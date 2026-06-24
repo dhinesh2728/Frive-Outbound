@@ -125,7 +125,7 @@ export default function CountingDetail() {
 
   const addEntryMutation = useMutation({
     mutationFn: async ({ entryType, quantity, crateCount, stackCount, manualQuantity, notes }) => {
-      const newTotal = totalQty + quantity;
+      const newTotal = entries.reduce((sum, e) => sum + e.calculated_quantity, 0) + quantity;
       const newStatus = computeStatus(newTotal, targetQty);
       const diff = newTotal - targetQty;
 
@@ -216,8 +216,8 @@ export default function CountingDetail() {
           difference_from_target: diff,
           status: newStatus,
         };
-        if (entryType === "manual_add") updateData.manual_additions = (jobData.manual_additions || 0) + manualQuantity;
-        if (entryType === "manual_subtract") updateData.manual_subtractions = (jobData.manual_subtractions || 0) + manualQuantity;
+        if (entryType === "manual_add") updateData.manual_additions = entries.filter(e => e.entry_type === "manual_add").reduce((sum, e) => sum + (e.manual_quantity || 0), 0) + manualQuantity;
+        if (entryType === "manual_subtract") updateData.manual_subtractions = entries.filter(e => e.entry_type === "manual_subtract").reduce((sum, e) => sum + (e.manual_quantity || 0), 0) + manualQuantity;
         await base44.entities.MealCountJob.update(jobId, updateData);
       }
 

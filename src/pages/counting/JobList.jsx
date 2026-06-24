@@ -77,7 +77,7 @@ export default function JobList() {
 
   const jobMap = useMemo(() => {
     const map = {};
-    jobs.forEach((j) => { map[`${j.menu_item_code}_${j.recipe_id}`] = j; });
+    jobs.forEach((j) => { map[`${(j.menu_item_code || '').toLowerCase()}_${j.recipe_id}`] = j; });
     return map;
   }, [jobs]);
 
@@ -85,7 +85,7 @@ export default function JobList() {
     return mergedPredictions.filter((p) => {
       const q = search.toLowerCase();
       const matchSearch = !q || (p.menu_item_code || "").toLowerCase().includes(q) || (p.recipe_id || "").toLowerCase().includes(q);
-      const job = jobMap[`${p.menu_item_code}_${p.recipe_id}`];
+      const job = jobMap[`${(p.menu_item_code || '').toLowerCase()}_${p.recipe_id}`];
       const status = job?.status || "not_started";
       const matchStatus = statusFilter === "all" || status === statusFilter ||
         (statusFilter === "complete" && status === "over_target");
@@ -96,7 +96,7 @@ export default function JobList() {
   const isLoading = loadingPred || loadingJobs;
 
   const handleJobClick = (pred) => {
-    const job = jobMap[`${pred.menu_item_code}_${pred.recipe_id}`];
+    const job = jobMap[`${(pred.menu_item_code || '').toLowerCase()}_${pred.recipe_id}`];
     const jobParam = job ? `&job_id=${job.id}` : "";
     // Use the first cook date for the detail page (job is stored against primary date)
     const primaryCookDate = cookDates[0];
@@ -154,7 +154,7 @@ export default function JobList() {
             <JobCard
               key={`${p.menu_item_code}_${p.recipe_id}`}
               prediction={p}
-              job={jobMap[`${p.menu_item_code}_${p.recipe_id}`]}
+              job={jobMap[`${(p.menu_item_code || '').toLowerCase()}_${p.recipe_id}`]}
               onClick={() => handleJobClick(p)}
               crateSettingsMappings={crateSettingsMappings}
               containerTypeDefs={containerTypeDefs}

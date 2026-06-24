@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation, Navigate } from "react-router-dom";
 import {
   Upload, Settings, BarChart3, ClipboardList, Menu, X, Package,
-  LogOut, CalendarCog, SlidersHorizontal, Layers, Truck, Users, ShieldCheck, Mail,
+  LogOut, CalendarCog, SlidersHorizontal, Layers, Truck, Users, ShieldCheck, Mail, LayoutDashboard,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -130,9 +130,10 @@ export default function AppLayout() {
               {/* Superadmin-only management links */}
               {isSuperAdmin && (
                 <>
-                  <NavLink to="/admin/users"         label="User Management"    icon={Users} />
-                  <NavLink to="/admin/permissions"   label="Manage Permissions" icon={ShieldCheck} />
-                  <NavLink to="/admin/email-settings" label="Email Settings"    icon={Mail} />
+                  <NavLink to="/admin/dashboard"      label="Admin Dashboard"    icon={LayoutDashboard} />
+                  <NavLink to="/admin/users"           label="User Management"    icon={Users} />
+                  <NavLink to="/admin/permissions"     label="Manage Permissions" icon={ShieldCheck} />
+                  <NavLink to="/admin/email-settings"  label="Email Settings"     icon={Mail} />
                 </>
               )}
               {hasAnyWorking && <div className="my-3 border-t border-sidebar-border" />}
