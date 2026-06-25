@@ -21,9 +21,11 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (activeCookDates.length > 0 && !selectedCookDate) {
-      setSelectedCookDate(activeCookDates[0]);
+      setSelectedCookDate(activeCookDates);
     }
   }, [activeCookDates]);
+
+  const cookDatesArray = Array.isArray(selectedCookDate) ? selectedCookDate : selectedCookDate ? [selectedCookDate] : [];
 
   const { data: jobs = [], isLoading: jobsLoading } = useQuery({
     queryKey: ["admin-dashboard-jobs", selectedCookDate],
@@ -31,10 +33,10 @@ export default function AdminDashboard() {
       const { data } = await supabase
         .from("meal_count_jobs")
         .select("*")
-        .eq("cook_date", selectedCookDate);
+        .in("cook_date", cookDatesArray);
       return data || [];
     },
-    enabled: !!selectedCookDate,
+    enabled: cookDatesArray.length > 0,
     refetchInterval: 30_000,
   });
 
@@ -44,10 +46,10 @@ export default function AdminDashboard() {
       const { data } = await supabase
         .from("imported_meal_predictions")
         .select("*")
-        .eq("cook_date", selectedCookDate);
+        .in("cook_date", cookDatesArray);
       return data || [];
     },
-    enabled: !!selectedCookDate,
+    enabled: cookDatesArray.length > 0,
     refetchInterval: 30_000,
   });
 
@@ -56,10 +58,10 @@ export default function AdminDashboard() {
     queryFn: async () => {
       const { data } = await supabase.from("pallets").select("*");
       return (data || []).filter(
-        p => Array.isArray(p.cook_dates) && p.cook_dates.includes(selectedCookDate)
+        p => Array.isArray(p.cook_dates) && p.cook_dates.some(cd => cookDatesArray.includes(cd))
       );
     },
-    enabled: !!selectedCookDate,
+    enabled: cookDatesArray.length > 0,
     refetchInterval: 30_000,
   });
 
@@ -69,10 +71,10 @@ export default function AdminDashboard() {
       const { data } = await supabase
         .from("trailers")
         .select("*")
-        .eq("cook_date", selectedCookDate);
+        .in("cook_date", cookDatesArray);
       return data || [];
     },
-    enabled: !!selectedCookDate,
+    enabled: cookDatesArray.length > 0,
     refetchInterval: 30_000,
   });
 
@@ -81,7 +83,7 @@ export default function AdminDashboard() {
   const derivedMeals = useMemo(() => {
     if (!jobs.length) return [];
     return jobs.map(job => {
-      const prediction = predictions.find(p => p.menu_item_code === job.menu_item_code) || null;
+      const prediction = predictions.find(p => p.menu_item_code === job.menu_item_code.toLowerCase()) || null;
       const mealPallets = pallets.filter(
         p => Array.isArray(p.items) && p.items.some(i => i.job_id === job.id)
       );
@@ -156,13 +158,13 @@ export default function AdminDashboard() {
         <div className="flex items-center gap-3">
           <label className="text-sm font-medium text-muted-foreground">Cook Date</label>
           <select
-            value={selectedCookDate || ""}
-            onChange={e => setSelectedCookDate(e.target.value)}
+            value={Array.isArray(selectedCookDate) ? selectedCookDate.join(",") : ""}
+            onChange={e => setSelectedCookDate(e.target.value ? e.target.value.split(",") : [])}
             className="border rounded px-3 py-1.5 text-sm bg-background"
           >
-            {activeCookDates.map(date => (
-              <option key={date} value={date}>{date}</option>
-            ))}
+            {activeCookDates.length > 0 && (
+              <option value={activeCookDates.join(",")}>{activeCookDates.join(" & ")}</option>
+            )}
           </select>
         </div>
         <Button
