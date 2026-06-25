@@ -79,6 +79,14 @@ export default function CountingDetail() {
   const { data: jobData, refetch: refetchJob } = useQuery({
     queryKey: ["job", jobIdParam, cookDate, menuItemCode, recipeId],
     queryFn: async () => {
+      if (jobIdParam) {
+        const byId = await base44.entities.MealCountJob.filter(
+          { id: jobIdParam },
+          "-created_date",
+          1
+        );
+        if (byId[0]) return byId[0];
+      }
       const existing = await base44.entities.MealCountJob.filter(
         { cook_date: cookDate, menu_item_code: menuItemCode, recipe_id: recipeId },
         "-created_date",
@@ -158,7 +166,6 @@ export default function CountingDetail() {
             present_date: presentDate,
             menu_item_code: menuItemCode,
             recipe_id: recipeId,
-            lp_item_id: lpItemId,
             target_quantity: targetQty,
             selected_bowl_type: containerType,
             crate_value_used: crateValue,
@@ -231,6 +238,9 @@ export default function CountingDetail() {
       setManualNote("");
       setPendingEntry(null);
     },
+    onError: (err) => {
+      toast({ title: "Failed to save entry", description: err?.message || "Unknown error", variant: "destructive" });
+    },
   });
 
   const handleAddEntry = useCallback(
@@ -242,7 +252,7 @@ export default function CountingDetail() {
       else if (entryType === "manual_subtract") quantity = -manualQuantity;
 
       const newTotal = totalQty + quantity;
-      if (newTotal > targetQty && entryType !== "manual_subtract") {
+      if (newTotal > targetQty && totalQty < targetQty && entryType !== "manual_subtract") {
         setPendingEntry({ entryType, quantity, crateCount, stackCount, manualQuantity, notes });
         setShowOverWarning(true);
         return;

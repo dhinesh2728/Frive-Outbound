@@ -122,7 +122,6 @@ export default function CsvImport() {
             .from("meal_count_jobs")
             .update({
               menu_item_id: row.menu_item_id,
-              lp_item_id: row.lp_item_id,
             })
             .in("id", matchingJobs.map((j) => j.id));
           if (jobUpdateErr) {
