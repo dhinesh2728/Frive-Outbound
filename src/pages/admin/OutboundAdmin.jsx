@@ -121,24 +121,26 @@ export default function OutboundAdmin() {
     },
   });
 
-  // Build LP map from both meal_count_jobs and imported_meal_predictions.
-  // Predictions are the authoritative source when meal_count_jobs hasn't been backfilled.
-  // meal_count_jobs entries override when populated (after import sync).
+  // Build LP map keyed by cook_date_code so different cooks with different LP codes never collide.
   const { data: lpJobMap = {} } = useQuery({
     queryKey: ["lp-mappings"],
     queryFn: async () => {
       const [jobsRes, predRes] = await Promise.all([
-        supabase.from("meal_count_jobs").select("menu_item_code, lp_item_id").not("lp_item_id", "is", null),
-        supabase.from("imported_meal_predictions").select("menu_item_code, lp_item_id").not("lp_item_id", "is", null),
+        supabase.from("meal_count_jobs").select("menu_item_code, cook_date, lp_item_id").not("lp_item_id", "is", null),
+        supabase.from("imported_meal_predictions").select("menu_item_code, cook_date, lp_item_id").not("lp_item_id", "is", null),
       ]);
       const map = {};
       for (const row of (predRes.data || [])) {
-        if (row.menu_item_code && row.lp_item_id)
-          map[row.menu_item_code.toLowerCase().trim()] = row.lp_item_id;
+        if (row.menu_item_code && row.lp_item_id) {
+          const key = `${row.cook_date}_${(row.menu_item_code || "").toLowerCase().trim()}`;
+          map[key] = row.lp_item_id;
+        }
       }
       for (const row of (jobsRes.data || [])) {
-        if (row.menu_item_code && row.lp_item_id)
-          map[row.menu_item_code.toLowerCase().trim()] = row.lp_item_id;
+        if (row.menu_item_code && row.lp_item_id) {
+          const key = `${row.cook_date}_${(row.menu_item_code || "").toLowerCase().trim()}`;
+          map[key] = row.lp_item_id;
+        }
       }
       return map;
     },
@@ -179,7 +181,7 @@ export default function OutboundAdmin() {
       const code = (item.menu_item_code || "").toLowerCase().trim();
       const cookDate = (pallet.cook_dates || [])[0] || cookDateMap[code] || "";
 
-      const sku = lpJobMap[code] || item.menu_item_code || "";
+      const sku = item.lp_item_id || lpJobMap[`${cookDate}_${code}`] || lpJobMap[code] || item.menu_item_code || "";
 
       const prodIso = (pallet.created_date || "").substring(0, 10);
       const totalQty = items.reduce((s, i) => s + (i.quantity || 0), 0);

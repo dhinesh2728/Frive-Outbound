@@ -26,25 +26,30 @@ function buildCookDateMap(jobs) {
 }
 
 async function buildLpJobMap() {
-  // Query both sources in parallel; meal_count_jobs overrides predictions when populated
+  // Query both sources in parallel; meal_count_jobs overrides predictions when populated.
+  // Keys are cook_date_code so different cooks with different LP codes never collide.
   const [jobsRes, predRes] = await Promise.all([
     supabase
       .from("meal_count_jobs")
-      .select("menu_item_code, lp_item_id")
+      .select("menu_item_code, cook_date, lp_item_id")
       .not("lp_item_id", "is", null),
     supabase
       .from("imported_meal_predictions")
-      .select("menu_item_code, lp_item_id")
+      .select("menu_item_code, cook_date, lp_item_id")
       .not("lp_item_id", "is", null),
   ]);
   const map = {};
   for (const row of (predRes.data || [])) {
-    if (row.menu_item_code && row.lp_item_id)
-      map[row.menu_item_code.toLowerCase().trim()] = row.lp_item_id;
+    if (row.menu_item_code && row.lp_item_id) {
+      const key = `${row.cook_date}_${(row.menu_item_code || "").toLowerCase().trim()}`;
+      map[key] = row.lp_item_id;
+    }
   }
   for (const row of (jobsRes.data || [])) {
-    if (row.menu_item_code && row.lp_item_id)
-      map[row.menu_item_code.toLowerCase().trim()] = row.lp_item_id;
+    if (row.menu_item_code && row.lp_item_id) {
+      const key = `${row.cook_date}_${(row.menu_item_code || "").toLowerCase().trim()}`;
+      map[key] = row.lp_item_id;
+    }
   }
   return map;
 }
@@ -56,7 +61,7 @@ function buildAsnRows(pallets, lpJobMap, cookDateMap) {
     const item = items[0];
     const code = (item.menu_item_code || "").toLowerCase().trim();
     const cookDate = (pallet.cook_dates || [])[0] || cookDateMap[code] || "";
-    const sku = lpJobMap[code] || item.menu_item_code || "";
+    const sku = item.lp_item_id || lpJobMap[`${cookDate}_${code}`] || lpJobMap[code] || item.menu_item_code || "";
     const prodIso = (pallet.created_date || "").substring(0, 10);
     const totalQty = items.reduce((s, i) => s + (i.quantity || 0), 0);
     return [

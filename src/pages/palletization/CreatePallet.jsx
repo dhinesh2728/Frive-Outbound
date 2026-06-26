@@ -248,6 +248,7 @@ export default function CreatePallet() {
         is_unit_based: true,
         is_manual: isManualCode,
         job_id: getJobForCode(code)?.id || null,
+        lp_item_id: getJobForCode(code)?.lp_item_id || null,
       }];
       pushHistory(newItems);
     } else {
@@ -280,6 +281,7 @@ export default function CreatePallet() {
         is_unit_based: false,
         is_manual: isManualCode,
         job_id: getJobForCode(code)?.id || null,
+        lp_item_id: getJobForCode(code)?.lp_item_id || null,
       }];
       pushHistory(newItems);
     }
