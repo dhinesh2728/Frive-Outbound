@@ -400,8 +400,10 @@ export default function CreatePallet() {
   const labelQty = savedPalletData
     ? (savedPalletData.items || []).reduce((sum, i) => sum + (i.quantity || 0), 0)
     : 0;
+  const cookDate = (savedPalletData?.cook_dates || [])[0] || "";
+  const code = ((savedPalletData?.items || [])[0]?.menu_item_code || "").toLowerCase();
   const labelLpId = savedPalletData
-    ? lpMap[((savedPalletData.items || [])[0]?.menu_item_code || "").toLowerCase()] || null
+    ? (lpMap[`${cookDate}_${code}`] || lpMap[code] || null)
     : null;
 
   const handlePrint = () => {

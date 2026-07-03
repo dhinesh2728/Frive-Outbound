@@ -401,9 +401,11 @@ export default function OutboundAdmin() {
                           <Select value={editForm.status || "draft"} onValueChange={ef("status")}>
                             <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
-                              {Object.entries(STATUS_LABELS).map(([v, l]) => (
-                                <SelectItem key={v} value={v}>{l}</SelectItem>
-                              ))}
+                              {Object.entries(STATUS_LABELS)
+                                .filter(([v]) => !CLOSED_STATUSES.includes(v))
+                                .map(([v, l]) => (
+                                  <SelectItem key={v} value={v}>{l}</SelectItem>
+                                ))}
                             </SelectContent>
                           </Select>
                         </Field>
