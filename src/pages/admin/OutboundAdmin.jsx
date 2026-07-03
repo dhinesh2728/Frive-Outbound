@@ -432,7 +432,7 @@ export default function OutboundAdmin() {
                             </Badge>
                           </div>
                           <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                            {trailer.cook_date && <span className="font-medium text-foreground">Cook: {trailer.cook_date}</span>}
+                            {trailer.cook_date && <span className="font-medium text-foreground">Cook: {formatDateDMY(trailer.cook_date)}</span>}
                             {trailer.truck_number && <span>Truck: {trailer.truck_number}</span>}
                             {trailer.driver_name && <span>Driver: {trailer.driver_name}</span>}
                             {trailer.driver_contact && <span>Contact: {trailer.driver_contact}</span>}

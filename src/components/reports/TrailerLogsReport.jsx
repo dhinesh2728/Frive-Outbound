@@ -39,6 +39,14 @@ function exportCSV(rows, filename) {
   URL.revokeObjectURL(url);
 }
 
+function formatDateDMY(isoStr) {
+  if (!isoStr) return "";
+  const part = String(isoStr).substring(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(part)) return isoStr;
+  const [yyyy, mm, dd] = part.split("-");
+  return `${dd}/${mm}/${yyyy}`;
+}
+
 function FilterChip({ label, onRemove }) {
   return (
     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
@@ -211,6 +219,7 @@ function TrailerRow({ trailer: t, expanded, onToggle }) {
             )}
           </div>
           <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+            {t.cook_date && <span>Cook: {formatDateDMY(t.cook_date)}</span>}
             {t.truck_number && <span>Truck: {t.truck_number}</span>}
             {t.driver_name && <span>Driver: {t.driver_name}</span>}
             {t.driver_contact && <span>Contact: {t.driver_contact}</span>}
@@ -252,7 +261,12 @@ function TrailerRow({ trailer: t, expanded, onToggle }) {
                 {t.loadedPallets.map(p => (
                   <div key={p.id} className="p-3 bg-background rounded-md border text-xs">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="font-semibold">{p.pallet_id}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold">{p.pallet_id}</span>
+                        {(p.cook_dates || [])[0] && (
+                          <span className="text-muted-foreground">Cook: {formatDateDMY((p.cook_dates || [])[0])}</span>
+                        )}
+                      </div>
                       {p.loaded_to_trailer_at && (
                         <span className="text-muted-foreground">Loaded: {new Date(p.loaded_to_trailer_at).toLocaleString()}</span>
                       )}
