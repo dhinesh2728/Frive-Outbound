@@ -350,7 +350,7 @@ function PalletizationReport({ pallets, activeCookDates }) {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-3">
           <CardTitle className="text-base">Pallets ({filtered.length})</CardTitle>
-          <Button variant="outline" size="sm" onClick={() => exportCSV(filtered.map(p => ({ pallet_id: p.pallet_id, description: p.description, status: p.status, total_stacks: p.total_stacks, items: (p.items || []).map(i => `${i.menu_item_code}×${i.stack_count}stk(${i.quantity})`).join("; "), ready_for_pickup: p.status === "ready_for_pickup" ? "Yes" : "No", is_flagged: p.is_flagged ? "Yes" : "No", created_at: p.created_date, created_by: p.created_by })), "pallets.csv")} disabled={!filtered.length}>
+          <Button variant="outline" size="sm" onClick={() => exportCSV(filtered.map(p => ({ pallet_id: p.pallet_id, description: p.description, status: p.status, meal: (p.items || []).map(i => i.menu_item_code).join(", "), qty: (p.items || []).map(i => i.quantity).join(", "), stacks: (p.items || []).map(i => i.is_unit_based ? `${i.quantity}u` : i.stack_count).join(", "), total_stacks: p.total_stacks, ready_for_pickup: p.status === "ready_for_pickup" ? "Yes" : "No", is_flagged: p.is_flagged ? "Yes" : "No", created_at: p.created_date, created_by: p.created_by })), "pallets.csv")} disabled={!filtered.length}>
             <Download className="w-4 h-4 mr-1" />Export CSV
           </Button>
         </CardHeader>
@@ -358,7 +358,11 @@ function PalletizationReport({ pallets, activeCookDates }) {
           {filtered.length === 0 ? <p className="text-center text-muted-foreground py-8">No results</p> : (
             <Table>
               <TableHeader><TableRow>
-                <TableHead>Pallet ID</TableHead><TableHead>Items</TableHead><TableHead className="text-right">Stacks</TableHead>
+                <TableHead>Pallet ID</TableHead>
+                <TableHead>Meal</TableHead>
+                <TableHead className="text-right">Qty</TableHead>
+                <TableHead className="text-right">Stacks</TableHead>
+                <TableHead className="text-right">Total</TableHead>
                 <TableHead>Status</TableHead><TableHead>Ready</TableHead><TableHead>Created</TableHead><TableHead>By</TableHead>
               </TableRow></TableHeader>
               <TableBody>
@@ -366,9 +370,25 @@ function PalletizationReport({ pallets, activeCookDates }) {
                   <TableRow key={p.id}>
                     <TableCell className="font-medium">{p.pallet_id}</TableCell>
                     <TableCell>
-                      <div className="flex flex-wrap gap-1">
+                      <div className="space-y-0.5">
                         {(p.items || []).map((item, i) => (
-                          <span key={i} className="text-xs bg-secondary px-1.5 py-0.5 rounded">{item.menu_item_code} ×{item.stack_count}stk</span>
+                          <div key={i} className="text-sm">{item.menu_item_code}</div>
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="space-y-0.5">
+                        {(p.items || []).map((item, i) => (
+                          <div key={i} className="text-sm">{item.quantity}</div>
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="space-y-0.5">
+                        {(p.items || []).map((item, i) => (
+                          <div key={i} className="text-sm">
+                            {item.is_unit_based ? `${item.quantity}u` : item.stack_count}
+                          </div>
                         ))}
                       </div>
                     </TableCell>
