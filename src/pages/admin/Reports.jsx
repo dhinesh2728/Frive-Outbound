@@ -1,4 +1,6 @@
 import { useState, useMemo } from "react";
+import { saveAsnRecords, buildAsnDbRows } from "@/lib/sendAsnEmail";
+import { useCurrentUser } from "@/lib/useCurrentUser";
 import { belongsToCook, filterByCook } from "@/lib/cookDateFilter";
 import { base44 } from "@/api/base44Client";
 import { supabase } from "@/api/supabaseClient";
@@ -529,6 +531,7 @@ function OutboundReport({ pallets, trailers, activeCookDates }) {
 
 function ASNReport({ trailers, pallets, jobs }) {
   const [expandedId, setExpandedId] = useState(null);
+  const { data: user } = useCurrentUser();
 
   const closedTrailers = useMemo(
     () => [...trailers.filter(t => t.status === "loaded_closed")]
@@ -541,6 +544,9 @@ function ASNReport({ trailers, pallets, jobs }) {
     queryKey: ["lp-mappings"],
     queryFn: async () => {
       const [jobsRes, predRes] = await Promise.all([
+        // NOTE: meal_count_jobs does not have an lp_item_id column (column is menu_item_id).
+        // This query intentionally returns no rows and falls through to imported_meal_predictions below.
+        // Do not 'fix' the column name without a full audit — imported_meal_predictions is the authoritative LP source.
         supabase.from("meal_count_jobs").select("menu_item_code, cook_date, lp_item_id").not("lp_item_id", "is", null),
         supabase.from("imported_meal_predictions").select("menu_item_code, cook_date, lp_item_id").not("lp_item_id", "is", null),
       ]);
@@ -618,6 +624,14 @@ function ASNReport({ trailers, pallets, jobs }) {
       "unknown";
     const trailerId = (trailer.trailer_id_label || "").replace(/\s+/g, "_");
     exportCSV(rows, `ASN_Frive_${cookDateRaw}_${trailerId}.csv`);
+    const dbRows = buildAsnDbRows(palletsByTrailer[trailer.id] || [], lpJobMap, cookDateMap);
+    saveAsnRecords(dbRows, {
+      trailerId: trailer.id,
+      generatedBy: user?.full_name || user?.email || null,
+      triggerSource: "manual_csv_reports",
+      resendMessageId: null,
+      sendStatus: "downloaded",
+    });
   }
 
   return (

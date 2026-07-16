@@ -85,7 +85,7 @@ export default function OutboundDashboard() {
   const readyPallets = displayPallets.filter(p => p.status === "ready_for_pickup");
   const loadedPallets = displayPallets.filter(p => p.status === "loaded_to_trailer");
 
-  const currentTrailer = trailers.find(t => t.id === activeTrailerId) || activeTrailers[0] || null;
+  const currentTrailer = trailers.find(t => t.id === activeTrailerId && t.status === "loading_in_progress") || activeTrailers[0] || null;
 
   const startOutboundMutation = useMutation({
     mutationFn: async (trailerId) => {
@@ -102,6 +102,10 @@ export default function OutboundDashboard() {
 
   const loadToTrailerMutation = useMutation({
     mutationFn: async ({ pallet, trailerId }) => {
+      const trailer = trailers.find(t => t.id === trailerId);
+      if (!trailer || trailer.status === "loaded_closed" || trailer.status === "disputed") {
+        throw new Error("This trailer is already closed. Refresh the page and try again.");
+      }
       await base44.entities.Pallet.update(pallet.id, {
         status: "loaded_to_trailer",
         loaded_to_trailer_at: new Date().toISOString(),
@@ -112,6 +116,9 @@ export default function OutboundDashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pallets"] });
       queryClient.invalidateQueries({ queryKey: ["trailers"] });
+    },
+    onError: (err) => {
+      toast({ title: "Cannot load pallet", description: err.message, variant: "destructive" });
     },
   });
 

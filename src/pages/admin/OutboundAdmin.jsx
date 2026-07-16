@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { supabase } from "@/api/supabaseClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { sendAsnEmail } from "@/lib/sendAsnEmail";
+import { sendAsnEmail, saveAsnRecords, buildAsnDbRows } from "@/lib/sendAsnEmail";
 import { useActiveCookDates } from "@/lib/useActiveCookDates";
 import { filterByCook } from "@/lib/cookDateFilter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -126,6 +126,9 @@ export default function OutboundAdmin() {
     queryKey: ["lp-mappings"],
     queryFn: async () => {
       const [jobsRes, predRes] = await Promise.all([
+        // NOTE: meal_count_jobs does not have an lp_item_id column (column is menu_item_id).
+        // This query intentionally returns no rows and falls through to imported_meal_predictions below.
+        // Do not 'fix' the column name without a full audit — imported_meal_predictions is the authoritative LP source.
         supabase.from("meal_count_jobs").select("menu_item_code, cook_date, lp_item_id").not("lp_item_id", "is", null),
         supabase.from("imported_meal_predictions").select("menu_item_code, cook_date, lp_item_id").not("lp_item_id", "is", null),
       ]);
@@ -209,6 +212,14 @@ export default function OutboundAdmin() {
       "unknown";
     const trailerId = (trailer.trailer_id_label || "").replace(/\s+/g, "_");
     exportCSV(rows, `ASN_Frive_${cookDateRaw}_${trailerId}.csv`);
+    const dbRows = buildAsnDbRows(palletsByTrailer[trailer.id] || [], lpJobMap, cookDateMap);
+    saveAsnRecords(dbRows, {
+      trailerId: trailer.id,
+      generatedBy: user?.full_name || user?.email || null,
+      triggerSource: "manual_csv_outbound",
+      resendMessageId: null,
+      sendStatus: "downloaded",
+    });
   }
 
   const createMutation = useMutation({
@@ -265,6 +276,7 @@ export default function OutboundAdmin() {
           pallets: trailerPallets,
           jobs,
           recipients: emailRecipients,
+          generatedBy: user?.full_name || user?.email || null,
         })
           .then((count) => {
             console.log("[ASN] Email sent successfully, recipient count:", count);

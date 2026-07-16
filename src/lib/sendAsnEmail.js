@@ -16,6 +16,15 @@ function addDaysDMY(isoDateStr, days) {
   return `${String(dt.getDate()).padStart(2, "0")}/${String(dt.getMonth() + 1).padStart(2, "0")}/${dt.getFullYear()}`;
 }
 
+// ISO equivalent of addDaysDMY — returns YYYY-MM-DD for DB storage, null on invalid input.
+function isoAddDays(isoStr, days) {
+  const part = String(isoStr || "").substring(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(part)) return null;
+  const [y, m, d] = part.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+
 function buildCookDateMap(jobs) {
   const map = {};
   for (const j of (jobs || [])) {
@@ -29,6 +38,9 @@ async function buildLpJobMap() {
   // Query both sources in parallel; meal_count_jobs overrides predictions when populated.
   // Keys are cook_date_code so different cooks with different LP codes never collide.
   const [jobsRes, predRes] = await Promise.all([
+    // NOTE: meal_count_jobs does not have an lp_item_id column (column is menu_item_id).
+    // This query intentionally returns no rows and falls through to imported_meal_predictions below.
+    // Do not 'fix' the column name without a full audit — imported_meal_predictions is the authoritative LP source.
     supabase
       .from("meal_count_jobs")
       .select("menu_item_code, cook_date, lp_item_id")
@@ -54,31 +66,52 @@ async function buildLpJobMap() {
   return map;
 }
 
+// Returns { csvRows, dbRows } — one entry per pallet with content.
+// csvRows: DD/MM/YYYY formatted, ready for CSV export (shape unchanged from before).
+// dbRows: ISO date values for DB storage; no FK/traceability columns (added by saveAsnRecords).
 function buildAsnRows(pallets, lpJobMap, cookDateMap) {
-  return pallets.flatMap((pallet) => {
+  const csvRows = [];
+  const dbRows = [];
+  for (const pallet of pallets) {
     const items = pallet.items || [];
-    if (!items.length) return [];
+    if (!items.length) continue;
     const item = items[0];
     const code = (item.menu_item_code || "").toLowerCase().trim();
     const cookDate = (pallet.cook_dates || [])[0] || cookDateMap[code] || "";
     const sku = item.lp_item_id || lpJobMap[`${cookDate}_${code}`] || lpJobMap[code] || item.menu_item_code || "";
     const prodIso = (pallet.created_date || "").substring(0, 10);
     const totalQty = items.reduce((s, i) => s + (i.quantity || 0), 0);
-    return [
-      {
-        CONTRACT: "F063",
-        SUPPLIER: "F063",
-        SKU: sku,
-        "QTY (UNITS)": totalQty,
-        DELIVERYDATE: formatDateDMY(cookDate),
-        REFERENCE: "FriveASN",
-        PalletIdentifier: pallet.pallet_id,
-        Expirydate: prodIso ? addDaysDMY(prodIso, 7) : "",
-        BatchId: "",
-        ProductionDate: formatDateDMY(prodIso),
-      },
-    ];
-  });
+    csvRows.push({
+      CONTRACT: "F063",
+      SUPPLIER: "F063",
+      SKU: sku,
+      "QTY (UNITS)": totalQty,
+      DELIVERYDATE: formatDateDMY(cookDate),
+      REFERENCE: "FriveASN",
+      PalletIdentifier: pallet.pallet_id,
+      Expirydate: prodIso ? addDaysDMY(prodIso, 7) : "",
+      BatchId: "",
+      ProductionDate: formatDateDMY(prodIso),
+    });
+    dbRows.push({
+      contract: "F063",
+      supplier: "F063",
+      sku,
+      qty_units: totalQty,
+      delivery_date: cookDate || null,
+      reference: "FriveASN",
+      pallet_identifier: pallet.pallet_id,
+      expiry_date: prodIso ? isoAddDays(prodIso, 7) : null,
+      batch_id: "",
+      production_date: prodIso || null,
+    });
+  }
+  return { csvRows, dbRows };
+}
+
+// Exported for the OutboundAdmin and Reports manual download paths.
+export function buildAsnDbRows(pallets, lpJobMap, cookDateMap) {
+  return buildAsnRows(pallets, lpJobMap, cookDateMap).dbRows;
 }
 
 function rowsToCsv(rows) {
@@ -90,7 +123,24 @@ function rowsToCsv(rows) {
   ].join("\n");
 }
 
-export async function sendAsnEmail({ trailer, pallets, jobs = [], recipients }) {
+// Saves ASN line-item records to asn_records. Non-fatal — logs but never throws,
+// so a DB write failure never masks the email send result.
+export async function saveAsnRecords(dbRows, { trailerId, generatedBy, triggerSource, resendMessageId, sendStatus }) {
+  if (!dbRows.length) return;
+  const records = dbRows.map(row => ({
+    ...row,
+    trailer_id: trailerId,
+    cook_date: row.delivery_date || null,
+    generated_by: generatedBy || null,
+    trigger_source: triggerSource,
+    resend_message_id: resendMessageId || null,
+    send_status: sendStatus,
+  }));
+  const { error } = await supabase.from("asn_records").insert(records);
+  if (error) console.error("[ASN] Failed to save asn_records:", error.message);
+}
+
+export async function sendAsnEmail({ trailer, pallets, jobs = [], recipients, generatedBy }) {
   if (!recipients || !recipients.length) return 0;
 
   const [lpJobMap, cookDateMap] = await Promise.all([
@@ -98,10 +148,10 @@ export async function sendAsnEmail({ trailer, pallets, jobs = [], recipients }) 
     Promise.resolve(buildCookDateMap(jobs)),
   ]);
 
-  const rows = buildAsnRows(pallets, lpJobMap, cookDateMap);
-  if (!rows.length) return 0;
+  const { csvRows, dbRows } = buildAsnRows(pallets, lpJobMap, cookDateMap);
+  if (!csvRows.length) return 0;
 
-  const csv = rowsToCsv(rows);
+  const csv = rowsToCsv(csvRows);
 
   const firstPallet = pallets[0];
   const cookDate =
@@ -117,9 +167,9 @@ export async function sendAsnEmail({ trailer, pallets, jobs = [], recipients }) 
   const base64Csv = btoa(unescape(encodeURIComponent(csv)));
 
   const toAddresses = recipients.map((r) => r.email);
-  console.log("[ASN] Calling edge function", { to: toAddresses, subject, rows: rows.length });
+  console.log("[ASN] Calling edge function", { to: toAddresses, subject, rows: csvRows.length });
 
-  const { error: fnError } = await supabase.functions.invoke("send-asn-email", {
+  const { data: fnData, error: fnError } = await supabase.functions.invoke("send-asn-email", {
     body: {
       to: toAddresses,
       subject,
@@ -127,6 +177,17 @@ export async function sendAsnEmail({ trailer, pallets, jobs = [], recipients }) 
       filename,
       base64Csv,
     },
+  });
+
+  // Always save regardless of email outcome — a failed send gets send_status='failed'
+  // with no resend_message_id. The throw below happens after the DB write so the
+  // caller's onError handler still fires.
+  await saveAsnRecords(dbRows, {
+    trailerId: trailer.id,
+    generatedBy: generatedBy || null,
+    triggerSource: "auto_on_close",
+    resendMessageId: fnError ? null : (fnData?.id || null),
+    sendStatus: fnError ? "failed" : "sent",
   });
 
   if (fnError) {
