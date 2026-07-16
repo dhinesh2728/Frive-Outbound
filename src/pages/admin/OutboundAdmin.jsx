@@ -269,8 +269,9 @@ export default function OutboundAdmin() {
         palletCount: pallets.filter((p) => p.trailer_id === trailer?.id).length,
       });
 
+      const trailerPallets = pallets.filter((p) => p.trailer_id === trailer?.id);
+
       if (emailRecipients.length > 0 && trailer?.id) {
-        const trailerPallets = pallets.filter((p) => p.trailer_id === trailer.id);
         sendAsnEmail({
           trailer,
           pallets: trailerPallets,
@@ -286,8 +287,16 @@ export default function OutboundAdmin() {
             console.error("[ASN] sendAsnEmail threw:", err);
             toast({ title: "ASN email failed", description: err.message, variant: "destructive" });
           });
-      } else {
-        console.warn("[ASN] Email skipped — recipients:", emailRecipients.length, "trailerId:", trailer?.id);
+      } else if (trailer?.id) {
+        const dbRows = buildAsnDbRows(trailerPallets, lpJobMap, cookDateMap);
+        saveAsnRecords(dbRows, {
+          trailerId: trailer.id,
+          generatedBy: user?.full_name || user?.email || null,
+          triggerSource: "auto_on_close",
+          resendMessageId: null,
+          sendStatus: "no_recipients",
+        });
+        console.warn("[ASN] Email skipped — no recipients configured. ASN data logged to asn_records with send_status=no_recipients.");
       }
 
       setCloseTarget(null);
